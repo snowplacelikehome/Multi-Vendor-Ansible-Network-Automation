@@ -1,0 +1,15 @@
+---
+- name: Run ciscosmb roles
+  hosts: ciscosmb
+  gather_facts: false
+  tasks:
+      - import_role:
+          name: backup
+      - import_role:
+          name: ntp
+      - import_role:
+          name: syslog
+      - import_role:
+          name: aaa
+      - import_role:
+          name: pw_reset

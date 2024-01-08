@@ -1,0 +1,31 @@
+ntp:
+  ipv4_1: 10.10.1.4
+  ipv4_2: 10.10.1.5
+  desc: AD DC Server set through Ansible
+  tz:
+    name: EST
+    long_name: America/Indiana/Indianapolis
+    diff: -5
+  # for some environments it would make more sense to create a [location_name].yml for
+  # the time zone and make some devices the child of the [location_name] group
+syslog:
+  name: sysloghost
+  ipv4: 10.1.1.45
+  port: 514
+  severity: informational
+  facility: local7
+  desc: Syslog server for capturing session history set through Ansible
+aaa:
+  name: npshost
+  ipv4: 10.1.1.10
+  auth_port: 1645
+  acct_port: 1646
+  desc: Centralized Device Managment AAA Host set through Ansible
+# Used to encrypting config backup and pw files. Requires Ansible core 2.12
+backup_vault_secret: !vault |
+          $ANSIBLE_VAULT;1.1;AES256
+          00000000000000000000000000000000000000000000000000000000000000000000000000000000
+          00000000000000000000000000000000000000000000000000000000000000000000000000000000
+          00000000000000000000000000000000000000000000000000000000000000000000000000000000
+          00000000000000000000000000000000000000000000000000000000000000000000000000000000
+          00000000000000000000000000000000000000000000000000000000000000000000

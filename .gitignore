@@ -1,0 +1,9 @@
+backups/*
+creds/*
+*.home.yml
+*.priv.yml
+*.backup
+*.filebackup
+*.creds
+*.pw
+*~

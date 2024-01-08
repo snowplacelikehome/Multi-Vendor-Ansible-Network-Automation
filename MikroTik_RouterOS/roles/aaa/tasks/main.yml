@@ -1,0 +1,96 @@
+---
+# tasks file for AAA
+- name: Configure the standard AAA settings
+  tags:
+    - aaa
+  block:
+    # First, get the device's IP to use as the source of the RADIUS/TACSCS client
+    # This shell command requires bind-utils (Red Hat) or bind9-host (Ubuntu)
+    - name: Run a command locally to get the IP of this device
+      tags: aaa_dry_run
+      ansible.builtin.shell:
+        # return ansible_host if it is already in the form of an IP and if not resolve it's name to an IP
+        cmd: if echo {{ ansible_host }} | grep -qE "[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}"; then echo "{{ ansible_host }}"; else host -4 -t A {{ansible_host }} 2> /dev/null | awk '/has address/ {print $4}'; fi
+      register: shell_result
+      delegate_to: localhost
+      changed_when: false
+
+    - name: Fail if ansible_host didn't resolve to an IP
+      tags: aaa_dry_run
+      ansible.builtin.fail:
+        msg: "The ansible_host ({{ ansible_host }}) did not resolve to an IP"
+      when: shell_result.stdout|length == 0
+
+    - name: Set the AAA source IP to the result of the shell command
+      tags: aaa_dry_run
+      ansible.builtin.set_fact:
+        aaa_source_ip: "{{ shell_result.stdout }}"
+
+    # Next, check existing radius conifig to see if it is being used for something other than device management
+    - name: Build set of AAA check commands
+      tags: aaa_dry_run
+      ansible.builtin.set_fact:
+        aaa_check_commands:
+          - "radius print count-only where service~\"login\" and service!=\"login\""
+
+    - name: Push the aaa check commands
+      tags: aaa_dry_run
+      ansible.netcommon.cli_command:
+        command: "{{ item }}"
+      loop: "{{ aaa_check_commands }}"
+      register: check_output
+
+    - name: Show Debug check_output variable
+      tags: aaa_dry_run
+      ansible.builtin.debug:
+        msg: '{{ check_output }}'
+      when: "'debug' in ansible_run_tags"
+
+    - name: Fail if any radius login hosts are being used for other aaa reasons
+      tags: aaa_dry_run
+      ansible.builtin.fail:
+        msg: "The command ({{ item.item }}) showed more than zero radius hosts used for login auth plus some other aaa service"
+      loop: '{{ check_output.results }}'
+      when: item.stdout|bool or item.stdout|length == 0
+
+    # If that didn't fail, build commands to cleanup and add the standard AAA configuration
+    - name: Build set of new AAA configuration commands
+      tags: aaa_dry_run
+      ansible.builtin.set_fact:
+        aaa_config_commands:
+          - "/radius remove [find where service=login]"
+          - "/radius add address={{ aaa.ipv4 }} authentication-port={{ aaa.auth_port }} accounting-port={{ aaa.acct_port }} comment=\"{{ aaa.desc }}\" service=login src-address={{ aaa_source_ip }} secret=\"{{ radius.shared_secret }}\""
+          - "/user aaa set use-radius=yes"
+
+    - name: List all of the AAA configuration commands that would be pushed
+      tags: aaa_dry_run
+      ansible.builtin.debug:
+        msg: "{{ item }}"
+      loop: "{{ aaa_config_commands }}"
+      when: "'debug' in ansible_run_tags"
+
+    # Finally, run the AAA commands
+    - name: Push the AAA configuration
+      ansible.netcommon.cli_command:
+        command: "{{ item }}"
+      loop: "{{ aaa_config_commands }}"
+      register: command_output
+      changed_when: command_output.stdout|length == 0
+
+    - name: Show Debug command_output variable
+      ansible.builtin.debug:
+        msg: '{{ command_output }}'
+      when: "'debug' in ansible_run_tags"
+
+    - name: Check for Failutres in the Command's Output
+      ansible.builtin.fail:
+        msg: "The command ({{ item.item }}) did not have an empty response"
+      when: item.stdout|length > 0
+      loop: '{{ command_output.results }}'
+
+    # MikroTik saves automatically
+    # - name: Save Device Configuration
+    #   ansible.netcommon.cli_command:
+    #     command: "copy running-config startup-config"
+    #   register: save_output
+    #   failed_when: "'Copy succeeded' not in save_output.stdout"

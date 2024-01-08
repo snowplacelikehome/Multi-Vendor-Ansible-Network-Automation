@@ -1,0 +1,123 @@
+---
+# tasks file for pw_reset
+- name: Remove all local user accounts and create a new one with a random, logged password
+  tags:
+    - pw_reset
+  block:
+    - name: run the user cleanup and new user tasks for devices with the true creds.reset variable
+      block:
+        # First, create in idempotent/saved, random password and save existing credentials
+        - name: Check if a password file already exists
+          tags: pw_dry_run
+          stat:
+            path: "{{ 'pw/' + inventory_hostname + '.pw' }}"
+          register: file_check_result
+
+        - name: Vault decrypt .pw
+          tags: pw_dry_run
+          expect:
+            command: "ansible-vault decrypt --ask-vault-pass {{ 'pw/' + inventory_hostname + '.pw' }}"
+            responses:
+              Vault password: "{{ backup_vault_secret }}"
+          when: file_check_result.stat.exists
+
+        - name: Create saved, idempotent, random password for each host
+          tags: pw_dry_run
+          ansible.builtin.set_fact:
+            new_pass: "{{ lookup('ansible.builtin.password', 'pw/' + inventory_hostname + '.pw', length=16) }}"
+
+        - name: Vault encrypt .pw file
+          tags: pw_dry_run
+          expect:
+            command: "ansible-vault encrypt --ask-vault-pass {{ 'pw/' + inventory_hostname + '.pw' }}"
+            responses:
+              New Vault password: "{{ backup_vault_secret }}"
+              Confirm New Vault password: "{{ backup_vault_secret }}"
+
+        - name: print the password
+          ansible.builtin.debug:
+            var: new_pass
+          when: "'debug' in ansible_run_tags"
+
+        - name: Capture show creds command output
+          tags: pw_dry_run
+          ansible.netcommon.cli_command:
+            command: "show running-config"
+          register: config_output
+
+        - name: Print the config's existing creds
+          tags: pw_dry_run
+          ansible.builtin.debug:
+            msg: "Current creds: {{ config_output.stdout | regex_findall('(?m)^username .*') | to_nice_json }}"
+          when: "'debug' in ansible_run_tags"
+
+        - name: Log the config_output's creds to a file
+          tags: pw_dry_run
+          ansible.builtin.copy:
+            backup: true
+            mode: "0640"
+            content: "{{ config_output.stdout | regex_findall('(?m)^username .*') | to_nice_json }}"
+            dest: "{{ 'creds/' + inventory_hostname + '.creds' }}"
+          changed_when: false
+
+        - name: Vault encrypt .creds file
+          tags: pw_dry_run
+          expect:
+            command: "ansible-vault encrypt --ask-vault-pass {{ 'creds/' + inventory_hostname + '.creds' }}"
+            responses:
+              New Vault password: "{{ backup_vault_secret }}"
+              Confirm New Vault password: "{{ backup_vault_secret }}"
+
+        # Next, build commands to remove any previously configured local users
+        - name: Build set of local user cleanup commands
+          tags: pw_dry_run
+          ansible.builtin.set_fact:
+            # the regex_findall will collect just the portion of the lines from the device's config to use in the remove command
+            # the regex_replace will match the reusable portion of the regex_findall and use the substitution to build the removal command
+            pw_clear_commands: "{{ config_output.stdout | regex_findall('(?m)username [\\w\\.-]+') | regex_replace('(?m)(username [\\w\\.-]+)', 'no \\1') }}"
+
+        - name: Build set of new user/pass configuration commands
+          tags: pw_dry_run
+          ansible.builtin.set_fact:
+            pw_config_commands:
+              - "username {{ pw.user }} password {{ new_pass }} privilege 15"
+
+        - name: List all of the user cleanup and new user configuration commands that would be pushed
+          tags: pw_dry_run
+          ansible.builtin.debug:
+            msg: "{{ item }}"
+          loop: "{{ [ 'configure terminal' ] + pw_clear_commands + pw_config_commands + [ 'exit' ] }}"
+          when: "'debug' in ansible_run_tags"
+
+        - name: Push the user cleanup and new user configuration
+          ansible.netcommon.cli_command:
+            command: "{{ item }}"
+          loop: "{{ [ 'configure terminal' ] + pw_clear_commands + pw_config_commands + [ 'exit' ] }}"
+          register: command_output
+          changed_when: command_output.stdout|length <= 0
+
+        - name: Show Debug command_output variable
+          ansible.builtin.debug:
+            msg: '{{ command_output }}'
+          when: "'debug' in ansible_run_tags"
+
+        - name: Check for Failutres in the Command Loop Output
+          ansible.builtin.fail:
+            msg: "The command ({{ item.item }}) did not have an empty response"
+          when: item.stdout|length > 0
+          loop: '{{ command_output.results }}'
+
+        - name: Save Password Reset Configuration
+          ansible.netcommon.cli_command:
+            command: "copy running-config startup-config"
+          register: save_output
+          failed_when: "'Copy succeeded' not in save_output.stdout"
+
+      when: pw.reset
+
+    - name: List the hosts skipped by false pw.reset
+      block:
+        - name: Print the hosts that are skipped
+          ansible.builtin.debug:
+            msg: "Skipped: {{ inventory_hostname }}"
+      when: not pw.reset

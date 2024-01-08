@@ -1,0 +1,4 @@
+mikrotikros:
+  hosts:
+    mikrotikcore:
+      ansible_host: 10.1.1.6

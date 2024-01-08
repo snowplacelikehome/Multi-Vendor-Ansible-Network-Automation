@@ -1,0 +1,63 @@
+---
+# tasks file for syslog
+
+- name: Configure the standard Syslog settings
+  tags:
+    - syslog
+  block:
+    # 
+    # No cleanup necessary. Leave existing syslog hosts if any are previously configured assuming more than one is fine
+    # 
+    # # First, build commands to remove any previously configured Syslog servers
+    # - name: Capture show run command output for cleanup
+    #   tags: syslog_dry_run
+    #   ansible.netcommon.cli_command:
+    #     command: "show running-config"
+    #   register: config_output
+
+    # - name: Build set of cleanup commands
+    #   tags: syslog_dry_run
+    #   ansible.builtin.set_fact:
+    #     # the regex_findall will collect just the portion of the lines from the device's config to use in the remove command
+    #     # the regex_replace will match the reusable portion of the regex_findall and use the substitution to build the removal command
+    #     syslog_clear_commands: "{{ config_output.stdout | regex_findall('(?m)^logging host [\\w\\.-]+') | regex_replace('(?m)(logging host [\\w\\.-]+)', 'no \\1') }}"
+
+    # Second, build commands to add the standard Syslog configuration
+    - name: Build set of new configuration commands
+      tags: syslog_dry_run
+      ansible.builtin.set_fact:
+        syslog_config_commands:
+          - "logging host {{ syslog.ipv4 }} port {{ syslog.port }} facility {{ syslog.facility }} severity {{ syslog.severity }} description \"{{ syslog.desc }}\""
+
+    - name: List all of the Syslog configuration commands that would be pushed
+      tags: syslog_dry_run
+      ansible.builtin.debug:
+        msg: "{{ item }}"
+    #  loop: "{{ [ 'configure terminal' ] + syslog_clear_commands + syslog_config_commands + [ 'exit' ] }}"
+      loop: "{{ [ 'configure terminal' ] + syslog_config_commands + [ 'exit' ] }}"
+      when: "'debug' in ansible_run_tags"
+
+    - name: Push the Syslog configuration
+      ansible.netcommon.cli_command:
+        command: "{{ item }}"
+    #  loop: "{{ [ 'configure terminal' ] + syslog_clear_commands + syslog_config_commands + [ 'exit' ] }}"
+      loop: "{{ [ 'configure terminal' ] + syslog_config_commands + [ 'exit' ] }}"
+      register: command_output
+      changed_when: command_output.stdout|length <= 0
+
+    - name: Show Debug command_output variable
+      ansible.builtin.debug:
+        msg: '{{ command_output }}'
+      when: "'debug' in ansible_run_tags"
+
+    - name: Check for Failutres in the Command's Output
+      ansible.builtin.fail:
+        msg: "The command ({{ item.item }}) did not have an empty response"
+      when: item.stdout|length > 0
+      loop: '{{ command_output.results }}'
+
+    - name: Save Device Configuration
+      ansible.netcommon.cli_command:
+        command: "copy running-config startup-config"
+      register: save_output
+      failed_when: "'Copy succeeded' not in save_output.stdout"

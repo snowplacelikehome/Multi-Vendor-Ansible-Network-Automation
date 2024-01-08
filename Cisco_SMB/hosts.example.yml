@@ -1,0 +1,5 @@
+ciscosmb:
+  hosts:
+    ciscocore:
+      ansible_host: 10.1.1.5
+

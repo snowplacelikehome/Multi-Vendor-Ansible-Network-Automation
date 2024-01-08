@@ -1,0 +1,78 @@
+---
+# tasks file for backup
+- name: Configuration Backup
+  tags:
+    - backup
+  block:
+    - name: Run show configuration command
+      tags: backup_dry_run
+      ansible.netcommon.cli_command:
+        command: "/export terse"
+      register: command_result
+
+    - name: Copy results to file
+      ansible.builtin.copy:
+        backup: true
+        mode: "0640"
+        content: "{{ command_result.stdout }}"
+        dest: "backups/{{ inventory_hostname }}.backup"
+
+    # ansible.builtin.valut requires Ansible Core 2.12
+    # - name: Ansible-Vault encrypt .backup to .enc_backup
+    #   ansible.builtin.copy:
+    #     content: "{{ lookup('ansible.builtin.file', 'backups/' + inventory_hostname + '.backup') | ansible.builtin.vault(backup_vault_secret) }}"
+    #     dest: "backups/{{ inventory_hostname }}.enc_backup"
+    #     mode: "0640"
+    #     decrypt: false
+
+    # - name: Remove unencrypted .backup file
+    #   ansible.builtin.file:
+    #     path: "backups/{{ inventory_hostname }}.backup"
+    #     state: absent
+    - name: Vault encrypt .backup
+      expect:
+        command: "ansible-vault encrypt --ask-vault-pass {{ 'backups/' + inventory_hostname + '.backup' }}"
+        responses:
+          New Vault password: "{{ backup_vault_secret }}"
+          Confirm New Vault password: "{{ backup_vault_secret }}"
+
+    # ROS /export commands lack sufficient detail, so make a backup on the device and download it
+    - name: Create a fact for the backup file name
+      ansible.builtin.set_fact:
+        backup_file: "{{ inventory_hostname + '.' + lookup('ansible.builtin.pipe','date \"+%Y-%m-%d-%H-%M\"') }}"
+
+    - name: Create ROS system backup
+      # community.routeros.command:
+      ansible.netcommon.cli_command:
+        command: "/system backup save name {{ backup_file }} dont-encrypt=yes"
+
+    # Save the existing file before downloading the new .filebackup
+    - name: Check if a .filebackup file already exists
+      stat:
+        path: "{{ 'backups/' + inventory_hostname + '.filebackup' }}"
+      register: file_check_result
+
+    - name: Copy file with owner and permissions
+      ansible.builtin.copy:
+        src: "{{ 'backups/' + inventory_hostname + '.filebackup' }}"
+        dest: "{{ 'backups/' + backup_file + '.filebackup' }}"
+        mode: '0640'
+      when: file_check_result.stat.exists
+
+    # Download it from the device and vault encrypt it
+    - name: Download ROS system backup
+      ansible.netcommon.net_get:
+        src: "{{ backup_file + '.backup' }}"
+        dest: "{{ 'backups/' + inventory_hostname + '.filebackup' }}"
+
+    - name: Vault encrypt .filebackup
+      expect:
+        command: "ansible-vault encrypt --ask-vault-pass {{ 'backups/' + inventory_hostname + '.filebackup' }}"
+        responses:
+          New Vault password: "{{ backup_vault_secret }}"
+          Confirm New Vault password: "{{ backup_vault_secret }}"
+
+    - name: Remove ROS system backup file
+      # community.routeros.command:
+      ansible.netcommon.cli_command:
+        command: "/file remove {{ backup_file + '.backup' }}"

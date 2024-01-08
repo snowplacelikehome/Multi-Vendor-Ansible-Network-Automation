@@ -1,0 +1,37 @@
+---
+# tasks file for backup
+- name: Configuration Backup
+  tags:
+    - backup
+  block:
+    - name: Run show configuration command
+      tags: backup_dry_run
+      ansible.netcommon.cli_command:
+        command: "show running-config"
+      register: command_result
+
+    - name: Copy results to file
+      ansible.builtin.copy:
+        backup: true
+        mode: "0640"
+        content: "{{ command_result.stdout }}"
+        dest: "backups/{{ inventory_hostname }}.backup"
+
+    # ansible.builtin.valut requires Ansible Core 2.12
+    # - name: Ansible-Vault encrypt .backup to .enc_backup
+    #   ansible.builtin.copy:
+    #     content: "{{ lookup('ansible.builtin.file', 'backups/' + inventory_hostname + '.backup') | ansible.builtin.vault(backup_vault_secret) }}"
+    #     dest: "backups/{{ inventory_hostname }}.enc_backup"
+    #     mode: "0640"
+    #     decrypt: false
+
+    # - name: Remove unencrypted .backup file
+    #   ansible.builtin.file:
+    #     path: "backups/{{ inventory_hostname }}.backup"
+    #     state: absent
+    - name: Vault encrypt .backup
+      expect:
+        command: "ansible-vault encrypt --ask-vault-pass {{ 'backups/' + inventory_hostname + '.backup' }}"
+        responses:
+          New Vault password: "{{ backup_vault_secret }}"
+          Confirm New Vault password: "{{ backup_vault_secret }}"
