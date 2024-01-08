@@ -40,14 +40,14 @@ ansible-galaxy collection install community.routeros
 ## Clone this example project to your Ansible script location
 
 ```sh
-#git clone https://github.com/snowplacelikehome/Home-Network-Automation.git
-git clone git@github.com:snowplacelikehome/Home-Network-Automation.git
+git clone https://github.com/snowplacelikehome/Multi-Vendor-Ansible-Network-Automation.git
+cd Multi-Vendor-Ansible-Network-Automation
 ```
 
 ### Creating new Vendor_Model playbook (or customize an existing)
 ```sh
 # 1. 
-# Duplicate another Vendor_Model (Example below)
+# Duplicate another Vendor_Model (Example below) if needed
 cp -a Cisco_SMB Juniper_SRX
 cd Juniper_SRX
 
