@@ -6,7 +6,8 @@
 1. Setup your Linux/Ansible/Python environment
 2. Clone this to a linux host where Ansible is installed
 3. Edit the hosts.yml files to match your devices
-4. Edit the all.yml file to match your general networking environment
+4. Edit the group_vars_all.yml file to match your general networking environment
+    - Each ```Vendor_Model```/group_vars/all.yml is linked to this one file
 5. Edit the group_vars/```vendormodel```.yml files within each of your Vendor_Model folders
     - Adjust variables to match your devices
     - Generate Ansible vault password vars for each of your network devices / device groups
