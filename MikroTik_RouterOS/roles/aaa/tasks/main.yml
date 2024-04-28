@@ -59,7 +59,7 @@
       ansible.builtin.set_fact:
         aaa_config_commands:
           - "/radius remove [find where service=login]"
-          - "/radius add address={{ aaa.ipv4 }} authentication-port={{ aaa.auth_port }} accounting-port={{ aaa.acct_port }} comment=\"{{ aaa.desc }}\" service=login src-address={{ aaa_source_ip }} secret=\"{{ radius.shared_secret }}\""
+          - "/radius add address={{ aaa.ipv4 }} authentication-port={{ radius.auth_port }} accounting-port={{ radius.acct_port }} comment=\"{{ aaa.desc }}\" service=login src-address={{ aaa_source_ip }} secret=\"{{ radius.shared_secret }}\""
           - "/user aaa set use-radius=yes"
 
     - name: List all of the AAA configuration commands that would be pushed

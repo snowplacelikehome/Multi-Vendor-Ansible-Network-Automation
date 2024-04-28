@@ -18,8 +18,6 @@ syslog:
 aaa:
   name: npshost
   ipv4: 10.1.1.10
-  auth_port: 1645
-  acct_port: 1646
   desc: Centralized Device Managment AAA Host set through Ansible
 # Used to encrypting config backup and pw files. Requires Ansible core 2.12
 backup_vault_secret: !vault |

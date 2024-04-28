@@ -27,6 +27,29 @@
           ansible.builtin.set_fact:
             new_pass: "{{ lookup('ansible.builtin.password', 'pw/' + inventory_hostname + '.pw', length=16) }}"
 
+        - name: Vault encrypt_string the new password to a variable using the same vault password provided through --ask-vault-pass
+          tags: pw_dry_run
+          expect:
+            command: "sh -c 'ansible-vault encrypt_string --ask-vault-pass --stdin-name ansible_password < pw/{{ inventory_hostname }}.pw 2>/dev/null'"
+            responses:
+              New Vault password: "{{ pw.vault_pass }}"
+              Confirm New Vault password: "{{ pw.vault_pass }}"
+          register: vault_encrypt_result
+
+        - name: Set the variable that the host_vars.j2 will use from the last 7 lines of the ansible-vault encrypt_string command
+          tags: pw_dry_run
+          ansible.builtin.set_fact:
+            vault_encrypt_pass: "{{ vault_encrypt_result.stdout_lines[2] }}\n{{ vault_encrypt_result.stdout_lines[3] }}\n{{ vault_encrypt_result.stdout_lines[4] }}\n{{ vault_encrypt_result.stdout_lines[5] }}\n{{ vault_encrypt_result.stdout_lines[6] }}\n{{ vault_encrypt_result.stdout_lines[7] }}\n{{ vault_encrypt_result.stdout_lines[8] }}\n"
+
+        - name: Add host_vars/inventory_hostname file with ansible_user and ansible-vault encrypted ansible_password variables
+          tags: pw_dry_run
+          template:
+            src: host_vars.j2
+            dest: "host_vars/{{ inventory_hostname }}.yml"
+            owner: jkm
+            group: jkm
+            mode: '0640'
+
         - name: Vault encrypt .pw file
           tags: pw_dry_run
           expect:
