@@ -1,0 +1,121 @@
+---
+#
+# This task will connect to the target device and to read the log message that gets
+# generated from the connection in order to see which IP the target is using to 
+# accept the connection. This is useful when the target devices is static NAT'd
+# behind a firewall
+- name: Get an IP from the target device that it should use as the source IP for outbound connections and add it to host_vars
+  tags:
+    - src_ip
+  block:
+
+    #
+    # First, get the target device's IP and make sure it's an IPv4, not a name
+
+    # This shell command requires bind-utils (Red Hat) or bind9-host (Ubuntu)
+    - name: Run a command locally to get the IP of the ansible_host target device
+      ansible.builtin.shell:
+        # return ansible_host if it is already in the form of an IP and if not resolve it's name to an IP
+        cmd: if echo {{ ansible_host }} | grep -qE "[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}"; then echo "{{ ansible_host }}"; else host -4 -t A {{ansible_host }} 2> /dev/null | awk '/has address/ {print $4}'; fi
+      register: shell_result
+      delegate_to: localhost
+      changed_when: false
+
+    - name: Fail if ansible_host target didn't resolve to an IP
+      ansible.builtin.fail:
+        msg: "The ansible_host ({{ ansible_host }}) did not resolve to an IP"
+      when: shell_result.stdout|length == 0
+
+    - name: Set a variable for the target IP from the result of the shell command
+      ansible.builtin.set_fact:
+        target_ip: "{{ shell_result.stdout }}"
+
+    #
+    # Then, get the source IP this Ansible server will use to connect to the target device so
+    # it's IP can be searched for in the target devices logs
+    # The 'ip' command in requires the iproute2 package in Ubuntu
+    - name: Run a command locally to get the IP of this Ansible server
+      ansible.builtin.shell:
+        # return ansible_host if it is already in the form of an IP and if not resolve it's name to an IP
+        #cmd: if echo {{ ansible_host }} | grep -qE "[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}"; then echo "{{ ansible_host }}"; else host -4 -t A {{ansible_host }} 2> /dev/null | awk '/has address/ {print $4}'; fi
+        # return target_ip if it is already in the form of an IP and if not resolve it's name to an IP
+        cmd: ip route get {{ target_ip }} | awk '/src/ {print $5}'
+      register: shell_result
+      delegate_to: localhost
+      changed_when: false
+
+    - name: Fail if the target didn't resolve to an IPv4
+      ansible.builtin.fail:
+        msg: "The ansible host ({{ target_ip }}) did not resolve to an IP"
+      when: shell_result.stdout|regex_search("^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}")|length == 0
+
+    - name: Set the search IP to the result of the shell command
+      ansible.builtin.set_fact:
+        search_ip: "{{ shell_result.stdout }}"
+
+    #
+    # And then, read the log from the target to find the ssh connection that lists it's own destination IP
+    - name: Capture 'show logging' command output
+      ansible.netcommon.cli_command:
+        command: "show logging"
+      register: command_output
+
+    # Look for a line like this:
+    #   09-Sep-2014 01:47:28 :%AAA-I-CONNECT: User CLI session for user jkm over ssh , source 10.10.1.61 destination  10.10.1.2 ACCEPTED
+    - name: Build a regex string for finding the source IP in the log output
+      ansible.builtin.set_fact:
+        source_search_str: ".*source\\s+{{ search_ip }}\\s+destination\\s+([0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3})"
+
+    - name: Create a list of matching connection log items
+      set_fact:
+        source_list: "{{ command_output.stdout_lines | select('match',source_search_str) | list }}"
+
+    - name: Show the first matching connection log item in the list
+      debug:
+        msg: "First Matching Log Item = {{ source_list[0] }}" # use the first in the list
+        #msg: "{{ source_list[-1] }}" # use the last in the list
+
+    - name: Get a variable for the destination IP from the selected log list
+      set_fact:
+        source_ip: "{{ source_list[0] | regex_replace('.*destination\\s+([0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}).*', '\\1') }}"
+
+    - name: Show the destination IP from the selected log item
+      debug:
+        msg: "Source IP = {{ source_ip }}" 
+
+    #
+    # Now, create a host_vars file for this ansible_host with the src_ip variable
+    # First, check if a host_vars file already exists
+    - name: Check if a host_vars file already exists
+      stat:
+        path: "host_vars/{{ inventory_hostname }}.yml"
+      register: host_vars_check_result
+
+    # If it doesn't exist, create it from the host_vars.j2 template
+    - name: Add a new hosts_vars file when a file doesn't already exist
+      block:
+        - name: Set the vault_encrypt_pass variable with placeholder text
+          ansible.builtin.set_fact:
+            vault_encrypt_pass: "#ansible_password: "
+
+        - name: Add host_vars/inventory_hostname file with ansible_user and encrypted ansible_password variables
+          template:
+            src: host_vars.j2
+            dest: "host_vars/{{ inventory_hostname }}.yml"
+            mode: '0640'
+        
+        - name: Replace ansible_user variable with the current ansible_user value in the newly created host_vars file
+          ansible.builtin.lineinfile:
+            path: "host_vars/{{ inventory_hostname }}.yml"
+            regex: '^ansible_user:'
+            line: "ansible_user: {{ ansible_user }}"
+
+      when: not host_vars_check_result.stat.exists
+
+    # Now, add the src_ip variable and value to the host_vars file
+    - name: Add src_ip variable and value to the host_vars files
+      ansible.builtin.lineinfile:
+        path: "host_vars/{{ inventory_hostname }}.yml"
+        insertafter: '^ansible_user:'
+        line: "src_ip: {{ source_ip }}"
+        mode: '0640'

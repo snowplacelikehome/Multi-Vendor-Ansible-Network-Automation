@@ -11,7 +11,7 @@
           tags: pw_dry_run
           stat:
             path: "{{ 'pw/' + inventory_hostname + '.pw' }}"
-          register: file_check_result
+          register: pw_file_check_result
 
         - name: Vault decrypt .pw
           tags: pw_dry_run
@@ -19,7 +19,7 @@
             command: "ansible-vault decrypt --ask-vault-pass {{ 'pw/' + inventory_hostname + '.pw' }}"
             responses:
               Vault password: "{{ backup_vault_secret }}"
-          when: file_check_result.stat.exists
+          when: pw_file_check_result.stat.exists
 
         - name: Create saved, idempotent, random password for each host
           tags: pw_dry_run
@@ -40,14 +40,43 @@
           ansible.builtin.set_fact:
             vault_encrypt_pass: "{{ vault_encrypt_result.stdout_lines[2] }}\n{{ vault_encrypt_result.stdout_lines[3] }}\n{{ vault_encrypt_result.stdout_lines[4] }}\n{{ vault_encrypt_result.stdout_lines[5] }}\n{{ vault_encrypt_result.stdout_lines[6] }}\n{{ vault_encrypt_result.stdout_lines[7] }}\n{{ vault_encrypt_result.stdout_lines[8] }}\n"
 
-        - name: Add host_vars/inventory_hostname file with ansible_user and ansible-vault encrypted ansible_password variables
+        #
+        # Create a host_vars file for this ansible_host with the src_ip variable
+        # First, check if a host_vars file already exists
+        - name: Check if a host_vars file already exists
           tags: pw_dry_run
-          template:
-            src: host_vars.j2
-            dest: "host_vars/{{ inventory_hostname }}.yml"
-            owner: jkm
-            group: jkm
-            mode: '0640'
+          stat:
+            path: "host_vars/{{ inventory_hostname }}.yml"
+          register: host_vars_check_result
+
+        - name: Edit the existing host_vars file to reset the ansible_user and encrypted ansible_password to their new values
+          tags: pw_dry_run
+          block:
+            - name: Replace ansible_user variable with the new value
+              ansible.builtin.lineinfile:
+                path: "host_vars/{{ inventory_hostname }}.yml"
+                regex: '^ansible_user:'
+                line: "ansible_user: {{ pw.user }}"
+
+            - name: Replace ansible_password variable with the new value
+              ansible.builtin.lineinfile:
+                path: "host_vars/{{ inventory_hostname }}.yml"
+                regex: '^#*ansible_password:'
+                line: "{{ vault_encrypt_pass }}"
+                mode: '0640'
+
+          when: host_vars_check_result.stat.exists
+
+        - name: Add a new hosts_vars file with the new ansible_user and encrypted ansible_password values
+          tags: pw_dry_run
+          block:
+            - name: Add host_vars/inventory_hostname file with ansible_user and ansible-vault encrypted ansible_password variables
+              template:
+                src: host_vars.j2
+                dest: "host_vars/{{ inventory_hostname }}.yml"
+                mode: '0640'
+
+          when: not host_vars_check_result.stat.exists
 
         - name: Vault encrypt .pw file
           tags: pw_dry_run
