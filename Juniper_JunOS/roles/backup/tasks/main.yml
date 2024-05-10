@@ -1,0 +1,52 @@
+---
+# tasks file for backup
+# Reference: https://docs.ansible.com/ansible/latest/collections/junipernetworks/junos/junos_config_module.html
+- name: Configuration Backup
+  tags:
+    - backup
+  block:
+    - name: Create a fact for the backup file name
+      ansible.builtin.set_fact:
+        backup_file: "{{ inventory_hostname + '.' + lookup('ansible.builtin.pipe','date \"+%Y-%m-%d-%H-%M\"') }}"
+
+    # Save the existing file before getting the new .backup
+    - name: Check if a .backup file already exists
+      stat:
+        path: "{{ 'backups/' + inventory_hostname + '.backup' }}"
+      register: file_check_result
+
+    - name: Copy file with owner and permissions
+      ansible.builtin.copy:
+        src: "{{ 'backups/' + inventory_hostname + '.backup' }}"
+        dest: "{{ 'backups/' + backup_file + '.backup' }}"
+        mode: '0640'
+      when: file_check_result.stat.exists
+
+    # Get it from the device and vault encrypt it
+    - name: Get a backup of the JunOS config in `text` format
+      junipernetworks.junos.junos_config:
+        backup: true
+        backup_options:
+          filename: "{{ inventory_hostname }}.backup"
+          dir_path: "backups"
+          #backup_format: "text"
+          backup_format: "set"
+    - name: Vault encrypt .backup
+      expect:
+        command: "ansible-vault encrypt --ask-vault-pass {{ 'backups/' + inventory_hostname + '.backup' }}"
+        responses:
+          New Vault password: "{{ backup_vault_secret }}"
+          Confirm New Vault password: "{{ backup_vault_secret }}"
+
+    # ansible.builtin.valut requires Ansible Core 2.12
+    # - name: Ansible-Vault encrypt .backup to .enc_backup
+    #   ansible.builtin.copy:
+    #     content: "{{ lookup('ansible.builtin.file', 'backups/' + inventory_hostname + '.backup') | ansible.builtin.vault(backup_vault_secret) }}"
+    #     dest: "backups/{{ inventory_hostname }}.enc_backup"
+    #     mode: "0640"
+    #     decrypt: false
+
+    # - name: Remove unencrypted .backup file
+    #   ansible.builtin.file:
+    #     path: "backups/{{ inventory_hostname }}.backup"
+    #     state: absent

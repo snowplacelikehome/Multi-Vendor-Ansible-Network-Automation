@@ -1,0 +1,76 @@
+---
+# tasks file for AAA
+- name: Configure the standard AAA settings
+  tags:
+    - aaa
+  block:
+    # First, build commands to remove any previously configured AAA servers
+    - name: Capture show configuration output for AAA cleanup
+      tags: aaa_dry_run
+      junipernetworks.junos.junos_command:
+        commands:
+          - "show configuration"
+        display: set
+      register: config_output
+
+    - name: Fail if the config has RADIUS set up
+      tags: aaa_dry_run
+      ansible.builtin.fail:
+        msg: "{{ansible_host}} contains a pre-existing radius configuration. Remove manually before proceeding"
+      # the regex_findall result will be > 0 if it finds "system radius-server SOME_WORD" in the config
+      when: config_output.stdout | regex_findall("(?m)system radius-server [\\w\\.-]+")|length > 0
+
+    - name: Build set of tacplus cleanup commands
+      tags: aaa_dry_run
+      ansible.builtin.set_fact:
+        tacplus_clear_commands: 
+          - "delete system tacplus-server"
+      # the regex_findall result will be > 0 if it finds "system tacplus-server SOME_WORD" in the config
+      when: config_output.stdout | regex_findall("(?m)system tacplus-server [\\w\\.-]+")|length > 0
+
+    # Second, build commands to add the standard AAA configuration
+    - name: Build set of new AAA configuration commands
+      tags: aaa_dry_run
+      ansible.builtin.set_fact:
+        aaa_config_commands:
+          - 'set system login user remote-admin full-name "User template for remote super-users" uid 2010 class super-user'
+          - 'set system login user remote-operator full-name "User template for remote operator users" uid 2011 class operator'
+          - 'set system login user remote-read-only full-name "User template for remote read-only users" uid 2012 class read-only'
+          #
+          - "delete system authentication-order"
+          - "set system authentication-order [password tacplus]"
+          #
+          - "set system tacplus-server {{ aaa.ipv4_1 }} secret \"{{ tacplus_secret }}\" timeout {{ aaa.timeout }}"
+          - "set system tacplus-server {{ aaa.ipv4_1 }} port {{ tacplus_port }} source-address {{ src_ipv4 }}"
+          - "set system tacplus-server {{ aaa.ipv4_2 }} secret \"{{ tacplus_secret }}\" timeout {{ aaa.timeout }}"
+          - "set system tacplus-server {{ aaa.ipv4_2 }} port {{ tacplus_port }} source-address {{ src_ipv4 }}"
+          #
+          - "set system accounting events login"
+          - "set system accounting events interactive-commands"
+          - "set system accounting destination tacplus"
+
+    - name: List all of the AAA configuration commands that would be pushed
+      tags: aaa_dry_run
+      ansible.builtin.debug:
+        msg: "{{ item }}"
+      #loop: "{{ aaa_clear_commands + aaa_config_commands }}"
+      loop: "{{ tacplus_clear_commands + aaa_config_commands }}"
+      when: "'debug' in ansible_run_tags"
+
+    - name: Push the AAA configuration
+      junipernetworks.junos.junos_config:
+        lines: "{{ tacplus_clear_commands + aaa_config_commands }}"
+      #  lines: "{{ item }}"
+      #loop: "{{ tacplus_clear_commands + aaa_config_commands }}"
+      register: config_result
+      # changed_when: command_output.stdout|length <= 0
+
+    # Setup filter ACLs for TACACS+
+
+    - name: Include interface filter ACLs for netconf
+      tags: aaa_dry_run
+      ansible.builtin.include_tasks:
+        file: lo_filter.yml
+        #apply:
+        #  tags:
+        #    - lo_filter

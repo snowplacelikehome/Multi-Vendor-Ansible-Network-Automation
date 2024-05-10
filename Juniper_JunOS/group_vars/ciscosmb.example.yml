@@ -26,12 +26,8 @@ ansible_network_os: community.ciscosmb.ciscosmb
 # These devices use outdated/weak ssh ciphers
 ansible_ssh_extra_args: -o KexAlgorithms=+diffie-hellman-group1-sha1 -o HostKeyAlgorithms=+ssh-dss -o Ciphers=+aes128-cbc
 
-# Dictionary variables don't work well when both group_vars and host_vars exist because the
-# entire radius dict and all it's elements whould have to be set in either place. Use
-# individual variables
-radius_auth_port: 1645
-radius_acct_port: 1646
-radius_secret: !vault |
+radius:
+  shared_secret: !vault |
           $ANSIBLE_VAULT;1.1;AES256
           00000000000000000000000000000000000000000000000000000000000000000000000000000000
           00000000000000000000000000000000000000000000000000000000000000000000000000000000
@@ -43,12 +39,3 @@ radius_secret: !vault |
 pw:
   reset: true
   user: some_other_user
-  # this needs to be the same password that is typed when --ask-vault-pass is used
-  vault_pass: !vault |
-          $ANSIBLE_VAULT;1.1;AES256
-          00000000000000000000000000000000000000000000000000000000000000000000000000000000
-          00000000000000000000000000000000000000000000000000000000000000000000000000000000
-          00000000000000000000000000000000000000000000000000000000000000000000000000000000
-          00000000000000000000000000000000000000000000000000000000000000000000000000000000
-          00000000000000000000000000000000000000000000000000000000000000000000000000000000
-          0000000000000000000000000000000000000000000000000000

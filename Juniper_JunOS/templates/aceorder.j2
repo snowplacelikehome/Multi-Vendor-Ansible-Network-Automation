@@ -1,0 +1,12 @@
+<firewall>
+  <family>
+    <inet>
+      <filter>
+        <name>{{ filter_name }}</name>
+        <term insert="before" name="{{ drop_ace_name }}">
+          <name>{{ acename }}</name>
+        </term>
+      </filter>
+    </inet>
+  </family>
+</firewall>

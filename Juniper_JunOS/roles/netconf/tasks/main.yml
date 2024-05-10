@@ -1,0 +1,18 @@
+---
+# Playbook for enabling netconf
+- name: Configure the devices for netconf
+  tags:
+    - netconf
+  block:
+    - name: Enable - JunOS NETCONF
+      junipernetworks.junos.junos_netconf:
+        listens_on: 830
+        state: present
+
+    - name: Include interface filter ACLs for netconf
+      tags: netconf_dry_run
+      ansible.builtin.include_tasks:
+        file: lo_filter.yml
+        #apply:
+        #  tags:
+        #    - lo_filter

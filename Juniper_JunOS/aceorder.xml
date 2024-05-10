@@ -1,0 +1,12 @@
+<firewall>
+  <family>
+    <inet>
+      <filter>
+        <name>RE-protect</name>
+        <term insert="before" name="default-discard">
+          <name>netconf</name>
+        </term>
+      </filter>
+    </inet>
+  </family>
+</firewall>

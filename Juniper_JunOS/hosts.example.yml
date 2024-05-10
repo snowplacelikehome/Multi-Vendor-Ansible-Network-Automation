@@ -1,0 +1,5 @@
+junos:
+  hosts:
+    junoscore:
+      ansible_host: 10.1.1.7
+

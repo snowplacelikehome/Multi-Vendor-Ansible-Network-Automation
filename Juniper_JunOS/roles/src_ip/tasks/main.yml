@@ -37,7 +37,7 @@
     - name: Run a command locally to get the IP of this Ansible server
       ansible.builtin.shell:
         # return the source IP this ansible server will use to reach target_ip
-        cmd: ip route get {{ target_ip }} |  sed -n 's/^.*src \([[0-9].]*\)/\1/p' | awk -F' ' '{print $1}' 
+        cmd: ip route get {{ target_ip }} |  sed -n 's/^.*src \([[0-9].]*\)/\1/p' | awk -F' ' '{print $1}'
       register: shell_result
       delegate_to: localhost
       changed_when: false
@@ -53,32 +53,46 @@
 
     #
     # Then, read the log from the target to find the ssh connection that lists it's own destination IP
-    - name: Capture 'show logging' command output
-      ansible.netcommon.cli_command:
-        command: "show logging"
+    #
+    - name: Connect to the device and capture 'show log messages' output
+      junipernetworks.junos.junos_command:
+        commands:
+          - "show log messages"
       register: command_output
 
     # Look for a line like this:
-    #   09-Sep-2014 01:47:28 :%AAA-I-CONNECT: User CLI session for user jkm over ssh , source 10.10.1.61 destination  10.10.1.2 ACCEPTED
-    - name: Build a regex string for finding the source IP in the log output
+    #  "May  7 17:00:36  agg01.bk mgd[28876]: UI_LOGIN_EVENT: User 'admin' login, class 'super-user' [28876], ssh-connection '10.1.3.58 47244 100.64.4.9 22', client-mode 'netconf'"
+    - name: Build a regex string for searching the log output for the last netconf login and extract just the source IP 
       ansible.builtin.set_fact:
-        source_search_str: ".*source\\s+{{ search_ip }}\\s+destination\\s+([0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3})"
+        source_search_str: ".*UI_LOGIN_EVENT: User [^\\s]+ login, class [^\\s]+ [^\\s]+ ssh-connection .{{ search_ip }} [^\\s]+ ([0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}) 22', client-mode 'netconf'"
 
     - name: Create a list of matching connection log items
-      set_fact:
-        source_list: "{{ command_output.stdout_lines | select('match',source_search_str) | list }}"
+      ansible.builtin.set_fact:
+        source_list: "{{ command_output.stdout_lines[0] | select('match',source_search_str) | list }}"
 
-    - name: Show the first matching connection log item in the list
-      debug:
-        msg: "First Matching Log Item = {{ source_list[0] }}" # use the first in the list
-        #msg: "{{ source_list[-1] }}" # use the last in the list
+    - name: Fail if an event log matching a login with the ansible host's IP wasn't found
+      ansible.builtin.fail:
+        msg: "No SSH login event matching the Ansible host's IP was found in the log output"
+      when: source_list | length == 0
+
+    - name: Show the last matching connection log item in the list
+      ansible.builtin.debug:
+        # "{{ source_list[0] }}" # to use the first in the list
+        msg: "Last Matching Log Item = {{ source_list | last }}"
 
     - name: Get a variable for the destination IP from the selected log list
-      set_fact:
-        source_ip: "{{ source_list[0] | regex_replace('.*destination\\s+([0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}).*', '\\1') }}"
+      ansible.builtin.set_fact:
+        #source_ip: "{{ source_list | last | regex_replace(\".*\\s+([0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}) \\d+.. client-mode .\\w+.\", '\\1') }}"
+        source_ip: "{{ source_list | last | regex_replace(\".*\\s+([0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}) \\d+.. client-mode .*\", '\\1') }}"
+
+      # if regex_replace doesn't find a match it will return the entire search string
+    - name: Fail if a source IP wasn't found
+      ansible.builtin.fail:
+        msg: "No match found"
+      when: source_list | last == source_ip
 
     - name: Show the destination IP from the selected log item
-      debug:
+      ansible.builtin.debug:
         msg: "Source IP = {{ source_ip }}" 
 
     #

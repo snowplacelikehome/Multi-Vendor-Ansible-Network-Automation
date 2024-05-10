@@ -1,0 +1,62 @@
+---
+# tasks file for ntp
+- name: Configure the standard NTP settings
+  tags:
+    - ntp
+  block:
+    # First, build commands to remove any previously configured NTP servers
+    - name: Capture show run command output for NTP cleanup
+      tags: ntp_dry_run
+      ansible.netcommon.cli_command:
+        command: "show running-config"
+      register: config_output
+
+    - name: Build set of NTP cleanup commands
+      tags: ntp_dry_run
+      ansible.builtin.set_fact:
+        # the regex_findall will collect just the portion of the lines from the device's config to use in the remove command
+        # the regex_replace will match the reusable portion of the regex_findall and use the substitution to build the removal command
+        # aaa_clear_commands: "{{ config_output.stdout | regex_findall('(?m)radius-server host [\\w\\.-]+') | regex_replace('(?m)(radius-server host [\\w\\.-]+)', 'no \\1') }}"
+        ntp_clear_commands: "{{ config_output.stdout | regex_findall('(?m)^sntp server [\\w\\.-]+') | regex_replace('(?m)(sntp server [\\w\\.-]+)', 'no \\1') }}"
+
+    # Second, build commands to add the standard NTP configuration
+    - name: Build set of new NTP configuration commands
+      tags: ntp_dry_run
+      ansible.builtin.set_fact:
+        ntp_config_commands:
+          - "sntp server {{ ntp.ipv4_1 }}"
+          - "sntp server {{ ntp.ipv4_2 }}"
+          - "clock timezone {{ ntp.tz.name }} {{ ntp.tz.diff }}"
+          - "clock summer-time web recurring usa"
+          - "clock source sntp"
+
+    - name: List all of the NTP configuration commands that would be pushed
+      tags: ntp_dry_run
+      ansible.builtin.debug:
+        msg: "{{ item }}"
+      loop: "{{ [ 'configure terminal' ] + ntp_clear_commands + ntp_config_commands + [ 'exit' ] }}"
+      when: "'debug' in ansible_run_tags"
+
+    - name: Push the NTP configuration
+      ansible.netcommon.cli_command:
+        command: "{{ item }}"
+      loop: "{{ [ 'configure terminal' ] + ntp_clear_commands + ntp_config_commands + [ 'exit' ] }}"
+      register: command_output
+      changed_when: command_output.stdout|length <= 0
+
+    - name: Show Debug command_output variable
+      ansible.builtin.debug:
+        msg: '{{ command_output }}'
+      when: "'debug' in ansible_run_tags"
+
+    - name: Check for Failutres in the Command's Output
+      ansible.builtin.fail:
+        msg: "The command ({{ item.item }}) did not have an empty response"
+      when: item.stdout|length > 0
+      loop: '{{ command_output.results }}'
+
+    - name: Save Device Configuration
+      ansible.netcommon.cli_command:
+        command: "copy running-config startup-config"
+      register: save_output
+      failed_when: "'Copy succeeded' not in save_output.stdout"

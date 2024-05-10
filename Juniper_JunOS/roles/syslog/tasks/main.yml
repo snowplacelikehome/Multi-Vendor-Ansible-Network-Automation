@@ -1,0 +1,40 @@
+---
+# tasks file for syslog
+
+- name: Configure the standard Syslog settings
+  tags:
+    - syslog
+  block:
+    # 
+    # No cleanup necessary. Leave existing syslog hosts if any are previously configured assuming more than one is fine
+    # 
+    # build commands to add the standard Syslog configuration
+    - name: Build set of new configuration commands
+      tags: syslog_dry_run
+      ansible.builtin.set_fact:
+        syslog_config_commands:
+          - "set system syslog host {{ syslog.ipv4 }} user info"
+          - "set system syslog host {{ syslog.ipv4 }} change-log notice"
+          - "set system syslog host {{ syslog.ipv4 }} interactive-commands info"
+          - "set system syslog host {{ syslog.ipv4 }} port {{ syslog.port }}"
+    - name: Add source-address when it exists
+      tags: syslog_dry_run
+      ansible.builtin.set_fact:
+        syslog_source_config_commands:
+          - "set system syslog host {{ syslog.ipv4 }} source-address {{ src_ipv4 }}"
+      when: src_ipv4|length > 0
+
+
+    - name: List all of the Syslog configuration commands that would be pushed
+      tags: syslog_dry_run
+      ansible.builtin.debug:
+        msg: "{{ item }}"
+    #  loop: "{{ [ 'configure terminal' ] + syslog_clear_commands + syslog_config_commands + [ 'exit' ] }}"
+      loop: "{{ syslog_config_commands + syslog_source_config_commands }}"
+      when: "'debug' in ansible_run_tags"
+
+    - name: Push the Syslog configuration
+      junipernetworks.junos.junos_config:
+        lines: "{{ syslog_config_commands + syslog_source_config_commands }}"
+      register: command_output
+      #changed_when: command_output.stdout|length <= 0

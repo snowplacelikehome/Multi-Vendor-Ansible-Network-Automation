@@ -1,0 +1,19 @@
+---
+- name: Run junos roles
+  hosts: junos
+  gather_facts: false
+  tasks:
+      - import_role:
+          name: netconf
+      - import_role:
+          name: backup
+      - import_role:
+          name: src_ip
+      #- import_role:
+      #    name: ntp
+      - import_role:
+          name: syslog
+      - import_role:
+          name: aaa
+      - import_role:
+          name: pw_reset

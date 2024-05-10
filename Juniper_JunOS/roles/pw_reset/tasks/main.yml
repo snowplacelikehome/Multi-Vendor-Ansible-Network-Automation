@@ -6,7 +6,6 @@
   block:
     - name: run the user cleanup and new user tasks for devices with the true creds.reset variable
       block:
-        #
         # First, create in idempotent/saved, random password and save existing credentials
         - name: Check if a password file already exists
           tags: pw_dry_run
@@ -33,7 +32,6 @@
         - name: Add new credentials to a host_vars/[invnetory_hostname].yml files with the vault encrypted password
           tags: make_host_vars
           block:
-
             - name: Vault encrypt_string the new password to a variable using the same vault password provided through --ask-vault-pass
               tags: pw_dry_run
               expect:
@@ -89,7 +87,6 @@
         #
         # vault encrypt the pw/[inventory_hostname].pw file
         #
-
         - name: Vault encrypt .pw file
           tags: pw_dry_run
           expect:
@@ -99,7 +96,6 @@
               Confirm New Vault password: "{{ backup_vault_secret }}"
 
         - name: print the password
-          tags: pw_dry_run
           ansible.builtin.debug:
             var: new_pass
           when: "'debug' in ansible_run_tags"
@@ -108,16 +104,21 @@
         # Capture the current credential hashes from the device configs and save
         # them in pw/[inventory_hostname].creds files
         #
-        - name: Capture show creds command output
+        - name: Capture show configuration output for creds collection
           tags: pw_dry_run
-          ansible.netcommon.cli_command:
-            command: "/user export terse"
+          junipernetworks.junos.junos_command:
+            commands:
+              - "show configuration"
+            display: set
           register: config_output
 
+        ##NOTE: this should repeate for "system root-authentication encrypted-password .*"
         - name: Print the config's existing creds
           tags: pw_dry_run
           ansible.builtin.debug:
-            msg: "Current creds: {{ config_output.stdout | regex_findall('(?m)^/user add .*') | to_nice_json }}"
+            # find 'system root-authentication encrypte-password ".*"' or 'system login user [USER] authentication encrypte-password ".*"'
+            # uses (?:) for a non-capturing group, otherwise findall only returns the stuff inside the () capturing group
+            msg: "Current creds: {{ config_output.stdout | regex_findall('(?m)system (?:root-|login user [\\w\\.-]+ )authentication encrypted-password \"[^\"]*\"') | to_nice_json }}"
           when: "'debug' in ansible_run_tags"
 
         - name: Log the config_output's creds to a file
@@ -125,7 +126,7 @@
           ansible.builtin.copy:
             backup: true
             mode: "0640"
-            content: "{{ config_output.stdout | regex_findall('(?m)^/user add .*') | to_nice_json }}"
+            content: "{{ config_output.stdout | regex_findall('(?m)system (?:root-|login user [\\w\\.-]+ )authentication encrypted-password \"[^\"]*\"') | to_nice_json }}"
             dest: "{{ 'creds/' + inventory_hostname + '.creds' }}"
           changed_when: false
 
@@ -137,64 +138,77 @@
               New Vault password: "{{ backup_vault_secret }}"
               Confirm New Vault password: "{{ backup_vault_secret }}"
 
-        # Next, create commands to either reset an existing user, otherwise add a new one, with the generated password
-        - name: Initialize commands for user reset
-          tags: pw_dry_run
-          ansible.builtin.set_fact:
-            pw_set_command: ""
-            pw_add_command: ""
-
-        - name: Build a `set` command for when there is an existing user
-          tags: pw_dry_run
-          ansible.builtin.set_fact:
-            pw_set_command: "/user set [find where name={{ pw.user }}] group=full"
-          when: config_output.stdout | regex_findall("(?m)/user add .*name=" + pw.user + "(\s|$)")|length > 0
-
-        - name: Build an `add` command when user doesn't exist
-          tags: pw_dry_run
-          ansible.builtin.set_fact:
-            pw_add_command: "/user add group=full name={{ pw.user }}"
-          when: pw_set_command|length == 0
-
         #
-        # Now, add or reset the new user and password and remove any others
-        - name: Build list of reset or new user/pass configuration commands
-          tags: pw_dry_run
-          ansible.builtin.set_fact:
-            pw_config_commands:
-              - "{{ pw_set_command }}{{ pw_add_command }} password={{ new_pass }}"
-              - "/user remove [find where name!={{ pw.user }}]"
+        # Connect to the devices, remove all users except the pw.user and reset pw.user's
+        # password to tne new creds
+        #
+        - name: Remove all users except the pw.user
+          junipernetworks.junos.junos_user:
+            aggregate:
+              - name: "{{ pw.user }}"
+            purge: true
 
-        - name: List all of the user cleanup and new user configuration commands that would be pushed
-          tags: pw_dry_run
-          ansible.builtin.debug:
-            msg: "{{ item }}"
-          loop: "{{ pw_config_commands }}"
-          when: "'debug' in ansible_run_tags"
+        - name: Reset the pw.user password
+          junipernetworks.junos.junos_user:
+            name: "{{ pw.user }}"
+            role: super-user
+            encrypted_password: "{{ new_pass | password_hash('sha512') }}"
+            state: present
 
-        - name: Push the user cleanup and new user configuration
-          ansible.netcommon.cli_command:
-            command: "{{ item }}"
-          loop: "{{ pw_config_commands }}"
-          register: command_output
-          changed_when: command_output.stdout|length <= 0
-
-        - name: Show Debug command_output variable
-          ansible.builtin.debug:
-            msg: '{{ command_output }}'
-          when: "'debug' in ansible_run_tags"
-
-        - name: Check for Failutres in the Command Loop Output
-          ansible.builtin.fail:
-            msg: "The command ({{ item.item }}) did not have an empty response"
-          when: item.stdout|length > 0
-          loop: '{{ command_output.results }}'
-
-        # - name: Save Password Reset Configuration
-        #   ansible.netcommon.cli_command:
-        #     command: "copy running-config startup-config"
-        #   register: save_output
-        #   failed_when: "'Copy succeeded' not in save_output.stdout"
+#        ### if we had to build commands to remove any previously configured local users
+#        - name: Create a JunOS encrypted-password
+#          tags: pw_dry_run
+#          ansible.builtin.set_fact:
+#            new_encrypted_pass: "{{ new_pass | password_hash('sha512') }}"
+#
+#        - name: Build set of local user cleanup commands
+#          tags: pw_dry_run
+#          ansible.builtin.set_fact:
+#            # the regex_findall will collect just the portion of the lines from the device's config to use in the remove command
+#            # the regex_replace will match the reusable portion of the regex_findall and use the substitution to build the removal command
+#            pw_clear_commands: "{{ config_output.stdout | regex_findall('(?m)system login user [\\w\\.-]+ authentication encrypted-password') | regex_replace('(?m)(system login user [\\w\\.-]+)', 'delete \\1') }}"
+#
+#        - name: Build set of new user/pass configuration commands
+#          tags: pw_dry_run
+#          ansible.builtin.set_fact:
+#            pw_config_commands:
+#              - "username {{ pw.user }} password {{ new_pass }} privilege 15"
+#              - "set system login user {{ pw.user }} uid 2000"
+#              - "set system login user {{ pw.user }} class super-user"
+#              - "set system login user {{ pw.user }} authentication encrypted-password \"{{ new_encrypted_pass }}\""
+#              - "set system login user root authentication encrypted-password \"{{ new_encrypted_pass }}\""
+#
+#
+#        - name: List all of the user cleanup and new user configuration commands that would be pushed
+#          tags: pw_dry_run
+#          ansible.builtin.debug:
+#            msg: "{{ item }}"
+#          loop: "{{ [ 'configure terminal' ] + pw_clear_commands + pw_config_commands + [ 'exit' ] }}"
+#          when: "'debug' in ansible_run_tags"
+#
+#        - name: Push the user cleanup and new user configuration
+#          ansible.netcommon.cli_command:
+#            command: "{{ item }}"
+#          loop: "{{ [ 'configure terminal' ] + pw_clear_commands + pw_config_commands + [ 'exit' ] }}"
+#          register: command_output
+#          changed_when: command_output.stdout|length <= 0
+#
+#        - name: Show Debug command_output variable
+#          ansible.builtin.debug:
+#            msg: '{{ command_output }}'
+#          when: "'debug' in ansible_run_tags"
+#
+#        - name: Check for Failutres in the Command Loop Output
+#          ansible.builtin.fail:
+#            msg: "The command ({{ item.item }}) did not have an empty response"
+#          when: item.stdout|length > 0
+#          loop: '{{ command_output.results }}'
+#
+#        - name: Save Password Reset Configuration
+#          ansible.netcommon.cli_command:
+#            command: "copy running-config startup-config"
+#          register: save_output
+#          failed_when: "'Copy succeeded' not in save_output.stdout"
 
       when: pw.reset
 
