@@ -1,11 +1,11 @@
 # Multi-Vendor/Model Ansible Networking Automation Example
 
-> Playbooks found below are based on the structure of this repo: 
->   <https://gitlab.com/stuh84/network-automation-ansible> 
-> Which is thoroughly explained in the Yetops Blog posts starting here:
->   [Ansible for Networking - Part 1: The start of the series](https://yetiops.net/posts/ansible-for-networking-series/)
-> These playboks combine the above structure with the approach to Roles, Handlers and configuration aggregation found here:
->   [Day One: Automating JunOS with Ansible 2.1](https://www.juniper.net/documentation/en_US/day-one-books/DO_AJA2ndEd.pdf)
+> Playbooks found below are based on the structure of this repo:  
+>   <https://gitlab.com/stuh84/network-automation-ansible>  
+> Which is thoroughly explained in the Yetops Blog posts starting here:  
+>   [Ansible for Networking - Part 1: The start of the series](https://yetiops.net/posts/ansible-for-networking-series/)  
+> These playboks combine the above structure with the approach to Roles, Handlers and configuration aggregation found here:  
+>   [Day One: Automating JunOS with Ansible 2.1](https://www.juniper.net/documentation/en_US/day-one-books/DO_AJA2ndEd.pdf)  
 
 ## Getting Started Overview
 1. Setup your Linux/Ansible/Python environment
@@ -94,7 +94,7 @@ vi junipersrx.yml
 |-------------------------------|-------------------------------------------------------|
 |.                              |  |
 |├── ansible.cfg -> ../ansible.cfg | config options for Ansible |
-|├── ciscosmb.yml               | Main playbook for Cisco SMB that imports the roles below and calls the assmeble_apply handler to load the new config|
+|├── ciscosmb.yml               | Main playbook for Cisco SMB that imports the roles, assembles the configs each role built into one combined all.conf config, and calls the assmeble_apply handler to load the new config|
 |├── hosts.yml                  | Invnetory of Cisco SMB hosts |
 |├── group_vars                 | |
 |.   ├── all.yml -> ../../group_vars_all.yml | variables applied to all vendors and models |
@@ -104,7 +104,7 @@ vi junipersrx.yml
 |└── roles                      | tasks to configure the roles for this model |
 |.   ├── assemble_apply         | |
 |.   │   └── handlers           | |
-|.   │       └── main.yml       | handler tasks to assemble all the configs in the build directory and then load the combined configuration file to the device and commit/confirm it |
+|.   │       └── main.yml       | handler tasks to load the combined configuration file to the device and commit/confirm it |
 |.   │   └── tasks              | |
 |.   │       └── main.yml -> ../../../../shared_tasks/assemble_apply_tasks.yml       | tasks to stage the build directory where the other roles will place configs 
 |.   │   └── vars               | |
