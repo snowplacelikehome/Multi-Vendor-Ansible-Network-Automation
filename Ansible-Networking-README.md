@@ -1,6 +1,11 @@
 # Multi-Vendor/Model Ansible Networking Automation Example
 
-> based on the structure of this repo: <https://gitlab.com/stuh84/network-automation-ansible>
+> Playbooks found below are based on the structure of this repo: 
+>   <https://gitlab.com/stuh84/network-automation-ansible> 
+> Which is thoroughly explained in the Yetops Blog posts starting here:
+>   [Ansible for Networking - Part 1: The start of the series](https://yetiops.net/posts/ansible-for-networking-series/)
+> These playboks combine the above structure with the approach to Roles, Handlers and configuration aggregation found here:
+>   [Day One: Automating JunOS with Ansible 2.1](https://www.juniper.net/documentation/en_US/day-one-books/DO_AJA2ndEd.pdf)
 
 ## Getting Started Overview
 1. Setup your Linux/Ansible/Python environment
