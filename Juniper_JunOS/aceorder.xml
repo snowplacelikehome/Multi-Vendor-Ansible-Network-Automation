@@ -4,7 +4,7 @@
       <filter>
         <name>RE-protect</name>
         <term insert="before" name="default-discard">
-          <name>netconf</name>
+          <name>syslog</name>
         </term>
       </filter>
     </inet>

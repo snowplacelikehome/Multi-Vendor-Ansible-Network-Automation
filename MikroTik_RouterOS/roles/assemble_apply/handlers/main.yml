@@ -1,0 +1,50 @@
+---
+# handlers file for assemble_apply
+- name: Handler to install the config on the device
+  tags:
+    - aaa
+    - ntp
+    - pw_dry
+    - syslog
+  block: 
+    - name: Install the config on the device
+      tags:
+        - aaa_dry_run
+        - ntp_dry_run
+        - pw_dry_run
+        - syslog_dry_run
+      ansible.builtin.command: cat {{ config_assemble|quote }}/all.conf
+      register: command_output
+      notify: Print the commands
+
+    - name: Print the commands
+      tags:
+        - aaa_dry_run
+        - ntp_dry_run
+        - pw_dry_run
+        - syslog_dry_run
+      ansible.builtin.debug:
+        msg: "{{ command_output.stdout }}"
+      changed_when: true
+      notify: Push the Full configuration
+
+    - name: Push the Full configuration
+      ansible.netcommon.cli_command:
+        command: "{{ item }}"
+      loop: "{{ command_output.stdout_lines }}"
+      register: cli_output
+      changed_when: cli_output.stdout|length <= 0
+    #  notify: Show Debug cli_output variable
+      notify: Check for failures in the Command's Output
+
+    #- name: Show Debug cli_output variable
+    #  ansible.builtin.debug:
+    #    msg: '{{ cli_output }}'
+    #  when: "'debug' in ansible_run_tags"
+    #  notify: Check for failures in the Command's Output
+
+    - name: Check for failures in the Command's Output
+      ansible.builtin.fail:
+        msg: "The command ({{ item.item }}) did not have an empty response"
+      when: item.stdout|length > 0
+      loop: '{{ cli_output.results }}'

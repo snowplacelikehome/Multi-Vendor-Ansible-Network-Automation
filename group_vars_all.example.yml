@@ -1,6 +1,6 @@
 ntp:
-  ipv4_1: 10.10.1.4
-  ipv4_2: 10.10.1.5
+  ipv4_1: 10.1.1.4
+  ipv4_2: 10.1.1.5
   desc: AD DC Server set through Ansible
   tz:
     name: EST

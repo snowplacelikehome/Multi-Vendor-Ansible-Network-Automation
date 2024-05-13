@@ -45,3 +45,9 @@
     #     command: "copy running-config startup-config"
     #   register: save_output
     #   failed_when: "'Copy succeeded' not in save_output.stdout"
+
+    - name: Build aaa.conf file from the template
+      tags: ntp_dry_run
+      ansible.builtin.template:
+        src: ntp.j2
+        dest: "{{ config_build }}/ntp.conf"

@@ -37,13 +37,13 @@ radius:
 ace:
   syslog:
     name: syslog
-    src_prefix_list_name: prefix-list-syslog-allowed
+    dst_prefix_list_name: prefix-list-syslog
   tacplus:
     name: tacplus
-    src_prefix_list_name: prefix-list-tacplus-allowed
+    src_prefix_list_name: prefix-list-tacplus
   netconf:
     name: netconf
-    src_prefix_list_name: prefix-list-netconf-allowed
+    src_prefix_list_name: prefix-list-netconf-access-ip
 
 netconf:
   port: 830

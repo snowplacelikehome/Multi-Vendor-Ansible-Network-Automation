@@ -7,4 +7,5 @@ host_vars/*
 *.filebackup
 *.creds
 *.pw
+*.bk
 *~

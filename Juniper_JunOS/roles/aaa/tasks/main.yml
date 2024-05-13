@@ -38,7 +38,7 @@
           - 'set system login user remote-read-only full-name "User template for remote read-only users" uid 2012 class read-only'
           #
           - "delete system authentication-order"
-          - "set system authentication-order [password tacplus]"
+          - "set system authentication-order [tacplus password]"
           #
           - "set system tacplus-server {{ aaa.ipv4_1 }} secret \"{{ tacplus_secret }}\" timeout {{ aaa.timeout }}"
           - "set system tacplus-server {{ aaa.ipv4_1 }} port {{ tacplus_port }} source-address {{ src_ipv4 }}"
@@ -67,7 +67,7 @@
 
     # Setup filter ACLs for TACACS+
 
-    - name: Include interface filter ACLs for netconf
+    - name: Include interface filter ACLs for TACACS+
       tags: aaa_dry_run
       ansible.builtin.include_tasks:
         file: lo_filter.yml

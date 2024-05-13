@@ -38,3 +38,13 @@
         lines: "{{ syslog_config_commands + syslog_source_config_commands }}"
       register: command_output
       #changed_when: command_output.stdout|length <= 0
+
+    # Setup filter ACLs for Syslog
+
+    - name: Include interface filter ACLs for Syslog
+      tags: syslog_dry_run
+      ansible.builtin.include_tasks:
+        file: lo_filter.yml
+        #apply:
+        #  tags:
+        #    - lo_filter
