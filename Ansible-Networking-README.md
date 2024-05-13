@@ -94,7 +94,7 @@ vi junipersrx.yml
 |-------------------------------|-------------------------------------------------------|
 |.                              |  |
 |├── ansible.cfg -> ../ansible.cfg | config options for Ansible |
-|├── ciscosmb.yml               | Main playbook for Cisco SMB |
+|├── ciscosmb.yml               | Main playbook for Cisco SMB that imports the roles below and calls the assmeble_apply handler to load the new config|
 |├── hosts.yml                  | Invnetory of Cisco SMB hosts |
 |├── group_vars                 | |
 |.   ├── all.yml -> ../../group_vars_all.yml | variables applied to all vendors and models |
@@ -102,6 +102,13 @@ vi junipersrx.yml
 |├── host_vars                  | |
 |.   └── ciscocore.yml          | variables specific to this host |
 |└── roles                      | tasks to configure the roles for this model |
+|.   ├── assemble_apply         | |
+|.   │   └── handlers           | |
+|.   │       └── main.yml       | handler tasks to assemble all the configs in the build directory and then load the combined configuration file to the device and commit/confirm it |
+|.   │   └── tasks              | |
+|.   │       └── main.yml -> ../../../../shared_tasks/assemble_apply_tasks.yml       | tasks to stage the build directory where the other roles will place configs 
+|.   │   └── vars               | |
+|.   │       └── main.yml  -> ../../../../shared_tasks/assemble_apply_vars.yml      | variables to define directories for building and assembling the configs |
 |.   ├── backup                 | |
 |.   │   └── tasks              | |
 |.   │       └── main.yml       | tasks for the backup role |
