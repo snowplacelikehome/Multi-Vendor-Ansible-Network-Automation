@@ -35,7 +35,7 @@
             - name: Vault encrypt_string the new password to a variable using the same vault password provided through --ask-vault-pass
               tags: pw_dry_run
               expect:
-                command: "sh -c 'ansible-vault encrypt_string --ask-vault-pass --stdin-name ansible_password < pw/{{ inventory_hostname }}.pw 2>/dev/null'"
+                command: "sh -c 'tr -d \"\\n\" < pw/{{ inventory_hostname }}.pw | ansible-vault encrypt_string --ask-vault-pass --stdin-name ansible_password 2>/dev/null'"
                 responses:
                   New Vault password: "{{ pw.vault_pass }}"
                   Confirm New Vault password: "{{ pw.vault_pass }}"
@@ -44,7 +44,10 @@
             - name: Set the variable that the host_vars.j2 will use from the last 7 lines of the ansible-vault encrypt_string command
               tags: pw_dry_run
               ansible.builtin.set_fact:
-                vault_encrypt_pass: "{{ vault_encrypt_result.stdout_lines[2] }}\n{{ vault_encrypt_result.stdout_lines[3] }}\n{{ vault_encrypt_result.stdout_lines[4] }}\n{{ vault_encrypt_result.stdout_lines[5] }}\n{{ vault_encrypt_result.stdout_lines[6] }}\n{{ vault_encrypt_result.stdout_lines[7] }}\n{{ vault_encrypt_result.stdout_lines[8] }}\n"
+                # The first two lines of stdout_lines will be the prompts for the vault password and a blank line, so 
+                # just get the lines starting with 'ansible_password'
+                vault_encrypt_pass: "{% set ns = namespace(start=false) %}{% for line in vault_encrypt_result.stdout_lines %}{% if ns.start or 'ansible_password' in line %}{% set ns.start = true %}{{line}}\n{% endif %}{% endfor %}"
+                #vault_encrypt_pass: "{{ vault_encrypt_result.stdout_lines[2] }}\n{{ vault_encrypt_result.stdout_lines[3] }}\n{{ vault_encrypt_result.stdout_lines[4] }}\n{{ vault_encrypt_result.stdout_lines[5] }}\n{{ vault_encrypt_result.stdout_lines[6] }}\n{{ vault_encrypt_result.stdout_lines[7] }}\n{{ vault_encrypt_result.stdout_lines[8] }}\n"
 
             #
             # Create a host_vars file for this ansible_host with the src_ip variable
@@ -63,6 +66,13 @@
                     path: "host_vars/{{ inventory_hostname }}.yml"
                     regex: '^ansible_user:'
                     line: "ansible_user: {{ pw.user }}"
+
+                - name: Comment out old ansible_password
+                  ansible.builtin.replace:
+                    path: "host_vars/{{ inventory_hostname }}.yml"
+                    after: '[#\s]*ansible_password: [^\n]*'
+                    regexp: '^(.+)$'
+                    replace: '# \1'
 
                 - name: Replace ansible_password variable with the new value
                   ansible.builtin.lineinfile:
@@ -139,13 +149,30 @@
               Confirm New Vault password: "{{ backup_vault_secret }}"
 
         #
-        # Connect to the devices, remove all users except the pw.user and reset pw.user's
+        # Connect to the devices, remove all users except the pw.user and remote-* user templates and reset pw.user's
         # password to tne new creds
         #
-        - name: Remove all users except the pw.user
+        
+        # junos_user aggregate is expecting use names in this format:
+        #   - name: admin
+        #   - name: remote-admin
+        - name: Combine pw.user and aaa_user_templates into one hash array
+          ansible.builtin.set_fact:
+            agg_user_name: >-
+              {%- set names = [ { 'name': pw.user } ] -%} 
+              {%- for t in aaa_user_templates -%}
+              {{ names.append( { 'name': t.name } ) }}
+              {%- endfor -%}
+              {{ names }}  
+
+        - name: Remove all users except the pw.user and the remote-* templates
           junipernetworks.junos.junos_user:
-            aggregate:
-              - name: "{{ pw.user }}"
+            aggregate: "{{ agg_user_name }}"
+            #aggregate:
+            #  - name: "{{ pw.user }}"
+            #  - name: remote-admin
+            #  - name: remote-operator
+            #  - name: remote-read-only
             purge: true
 
         - name: Reset the pw.user password
@@ -154,6 +181,29 @@
             role: super-user
             encrypted_password: "{{ new_pass | password_hash('sha512') }}"
             state: present
+
+        # root user is not supported yet: https://github.com/ansible-collections/junipernetworks.junos/issues/144
+        #- name: Reset the root password
+        #  junipernetworks.junos.junos_user:
+        #    name: root
+        #    encrypted_password: "{{ new_pass | password_hash('sha512') }}"
+        #    state: present
+
+        - name: generate an XML from the root password reset template
+          tags: pw_dry_run
+          ansible.builtin.template:
+            src: root_pw.j2
+            dest: pw/root_pw.xml
+            #owner: ubuntu
+            #group: ubuntu
+            mode: '0640'
+
+        - name: Load XML config to reset the root password
+          junipernetworks.junos.junos_config:
+            src: pw/root_pw.xml
+            src_format: xml
+          register: config_result
+          notify: Remove the root_pw XML file
 
 #        ### if we had to build commands to remove any previously configured local users
 #        - name: Create a JunOS encrypted-password

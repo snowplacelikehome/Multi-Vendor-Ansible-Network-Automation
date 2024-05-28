@@ -29,34 +29,86 @@ ansible_port: 22
 # These devices use outdated/weak ssh ciphers
 #ansible_ssh_extra_args: -o KexAlgorithms=+diffie-hellman-group1-sha1 -o HostKeyAlgorithms=+ssh-dss -o Ciphers=+aes128-cbc
 
-radius:
-  auth_port: 1645
-  acct_port: 1646
+#
+# Firewall Filter variables
+#
 
-# ACE infor for the services
+prefix_lists:
+  mgmt_if:
+    name: mgmt-interface-ips
+    used_by: 
+      - ntp_acl
+      - ntp_acl_dry_run
+      - syslog_acl
+      - syslog_acl_dry_run
+      - aaa_acl
+      - aaa_acl_dry_run
+  mgmt_nets:
+    name: mgmt-nets
+    prefixes:
+      - 10.10.1.0/24
+      - 10.10.3.0/24
+    used_by: 
+      - netconf_acl
+      - netconf_acl_dry_run
+      #- snmp
+  radius_servers:
+    name: radius-servers
+  tacplus_servers:
+    name: tacplus-servers
+    #name: prefix-list-tacplus
+  syslog_servers:
+    name: syslog-servers
+  ntp_servers:
+    name: ntp-servers
+
+# ACE info for the different services
 ace:
+  aaa:
+    name: radius
+    src_prefix_list_name: "{{ prefix_lists.radius_servers.name}}"
+    #name: tacplus
+    #src_prefix_list_name: "{{ prefix_lists.tacplus_servers.name}}"
   syslog:
     name: syslog
-    dst_prefix_list_name: prefix-list-syslog
-  tacplus:
-    name: tacplus
-    src_prefix_list_name: prefix-list-tacplus
+    dst_prefix_list_name: "{{ prefix_lists.syslog_servers.name}}"
   netconf:
     name: netconf
-    src_prefix_list_name: prefix-list-netconf-access-ip
+  ntp:
+    name: ntp
+    src_prefix_list_name: ntp-servers
 
 netconf:
   port: 830
 
+radius_auth_port: 1812
+radius_acct_port: 1813
 tacplus_port: 49
-tacplus_secret: !vault |
+
+aaa_type: radius
+aaa_secret: !vault |
           $ANSIBLE_VAULT;1.1;AES256
+#          00000000000000000000000000000000000000000000000000000000000000000000000000000000
+#          00000000000000000000000000000000000000000000000000000000000000000000000000000000
 #          00000000000000000000000000000000000000000000000000000000000000000000000000000000
 #          00000000000000000000000000000000000000000000000000000000000000000000000000000000
 #          00000000000000000000000000000000000000000000000000000000000000000000000000000000
 #          00000000000000000000000000000000000000000000000000000000000000000000000000000000
 #          0000
 
+aaa_user_templates:
+  - name: remote-admin
+    desc: "User template for remote super-users"
+    uid: 2010
+    class: super-user
+  - name: remote-operator
+    desc: "User template for remote operator users"
+    uid: 2011
+    class: operator
+  - name: remote-read-only
+    desc: "User template for remote read-only users"
+    uid: 2012
+    class: read-only
 
 pw:
   reset: true

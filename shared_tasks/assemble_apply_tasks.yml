@@ -2,14 +2,22 @@
 # tasks file for assemble_apply
 - name: Initialize the config directory
   tags:
+    - netconf_acl
+    - netconf_acl_dry_run
     - aaa
+    - aaa_acl
     - aaa_dry_run
+    - aaa_acl_dry_run
     - ntp
+    - ntp_acl
     - ntp_dry_run
+    - ntp_acl_dry_run
+    - syslog
+    - syslog_acl
+    - syslog_dry_run
+    - syslog_acl_dry_run
     - pw_reset
     - pw_dry_run
-    - syslog
-    - syslog_dry_run
   block:
     - name: confirm or create device config directory
       ansible.builtin.file:
@@ -19,6 +27,10 @@
     - name: delete previous build directory
       ansible.builtin.file:
         path: "{{ config_build }}"
+        state: absent
+    - name: delete previous all.conf file
+      ansible.builtin.file:
+        path: "{{ config_all }}"
         state: absent
     - name: create build directory
       ansible.builtin.file:

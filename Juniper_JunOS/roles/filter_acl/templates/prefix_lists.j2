@@ -1,0 +1,18 @@
+#jinja2: trim_blocks: "true", lstrip_blocks: "true"
+{% if not existing_mgmt_if_prefix_list %}
+    {# A common prefix-list for the management interface's IP would look like this #}
+    {# set policy-options prefix-list mgmt-interface-ips apply-path "interfaces <lo0> unit <0> family inet address <*>" #}
+    {% if set(ansible_run_tags).intersecton(prefix_lists.mgmt_if.used_by) | length > 0 %}
+set policy-options prefix-list {{ prefix_lists.mgmt_if.name }} apply-path "interfaces {{ mgmt_if_path }} family inet address <*>"
+    {% endif %}
+{% endif %}
+{% if not existing_mgmt_ipv4_prefix_list %}
+    {# common prefix-list's for the management networks would look like this #}
+    {# set policy-options prefix-list mgmt-nets 10.1.1.0/24 #}
+    {# set policy-options prefix-list mgmt-nets 10.1.3.0/24 #}
+    {% if set(ansible_run_tags).intersecton(prefix_lists.mgmt_nets.used_by) | length > 0 %}
+        {% for prefix in prefix_lists.mgmt_nets.prefixes %}
+set policy-options prefix-list {{ prefix_lists.mgmt_nets.name }} {{ prefix }}
+        {% endfor %}
+    {% endif %}
+{% endif %}

@@ -1,38 +1,33 @@
 Role Name
 =========
 
-A brief description of the role goes here.
+This role is meant to determine an IPv4 address the device should use as it's source address when configuring services like syslog radius to make outbound connections from the device.
+
+tasks/main.yml attempts to do this by searching for the most common management and loopback interfaces that typically get a management IP assigned and if it has an IPv4 configure a host_vars file the device with a src_ipv4 variable set to that IP.
+
+tasks/src_via_messages_log.yml provides an alternative approach by connecting to the device and checking the messages log to see if it contains the IP the device was listening on, assuming that would be the best IP to use for it's other services. It could be renamed to main.yml if needed.
 
 Requirements
 ------------
 
-Any pre-requisites that may not be covered by Ansible itself or the role should be mentioned here. For instance, if the role uses the EC2 module, it may be a good idea to mention in this section that the boto package is required.
 
 Role Variables
 --------------
 
-A description of the settable variables for this role should go here, including any variables that are in defaults/main.yml, vars/main.yml, and any variables that can/should be set via parameters to the role. Any variables that are read from other roles and/or the global scope (ie. hostvars, group vars, etc.) should be mentioned here as well.
+None
 
 Dependencies
 ------------
 
-A list of other roles hosted on Galaxy should go here, plus any details in regards to parameters that may need to be set for other roles, or variables that are used from other roles.
+The netconf role need to be run before this will work.
 
 Example Playbook
 ----------------
 
-Including an example of how to use your role (for instance, with variables passed in as parameters) is always nice for users too:
-
-    - hosts: servers
-      roles:
-         - { role: username.rolename, x: 42 }
-
 License
 -------
-
-BSD
 
 Author Information
 ------------------
 
-An optional section for the role authors to include contact information, or a website (HTML is not allowed).
+

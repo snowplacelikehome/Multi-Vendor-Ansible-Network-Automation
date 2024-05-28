@@ -1,2 +1,7 @@
 ---
 # handlers file for local_pw_reset
+- name: Remove the root_pw XML file
+  tags: pw_reset
+  ansible.builtin.file:
+    path: pw/root_pw.xml
+    state: absent

@@ -1,0 +1,10 @@
+#jinja2: trim_blocks: "true", lstrip_blocks: "true"
+{% if ntp_clear_servers != None and ntp_clear_servers|length > 0 %}
+    {% for srv in ntp_clear_servers %}
+delete system ntp server {{ srv }}
+    {% endfor %}
+{% endif %}
+{% for ipv4 in ntp_server_ipv4s %}
+set system ntp server {{ ipv4.server_ip }}
+{% endfor %}
+set system time-zone {{ ntp_tz.name }}

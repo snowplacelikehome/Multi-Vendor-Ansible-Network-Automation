@@ -30,7 +30,7 @@
           filename: "{{ inventory_hostname }}.backup"
           dir_path: "backups"
           #backup_format: "text"
-          backup_format: "set"
+          #backup_format: "set"
     - name: Vault encrypt .backup
       expect:
         command: "ansible-vault encrypt --ask-vault-pass {{ 'backups/' + inventory_hostname + '.backup' }}"

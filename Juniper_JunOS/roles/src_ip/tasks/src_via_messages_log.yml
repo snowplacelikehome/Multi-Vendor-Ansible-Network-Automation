@@ -1,39 +1,12 @@
 ---
 #
-# This task will connect to the device and check for the most common loopback and management
-# interfaces typically used for switch management and then determine if any of those
-# interfaces have an IP that can be used as the source.
-# This is useful when the target devices is static NAT'd behind a firewall and you 
-# can't assume the IP you are connecting to is usable as the source the device should 
-# use for outbound connections
-# Once determined, the src_ip will be added to an inventory_hostname named file in host_vars
-# Reference: https://www.juniper.net/documentation/us/en/software/junos/junos-getting-started/topics/concept/interfaces-understanding-management-ethernet-interfaces.html
-# Platform
-#
-# Interface Name	Description
-# MX Series routers
-# fxp0	
-# The fxp0 interface is typically an RJ-45 port on the Routing Engine.
-#
-# EX Series switches
-# me0, vme	
-# The me0 interface is typically an RJ-45 port on the Routing Engine.
-# The vme interface is used when the device is part of a Virtual Chassis (VC), and is accessed via the me0 port. For consistency you can configure and use the vme interface on a stand alone switch.
-
-# QFX Series switches
-# em0, vme	
-# The em0 interface is typically an RJ-45 port on the Routing Engine.
-# The vme interface is used when the device is part of a Virtual Chassis (VC), and is accessed via the em0 port. For consistency you can configure and use the vme interface on a stand alone switch.
-
-# SRX Security Gateways
-# fxp0, ge-0/0/0	
-# The fxp0 interface is typically an RJ-45 port on the Routing Engine.
-# On some SRX platforms the ge-0/0/0 interface is used as the management interface.
-#
-# Platforms running Junos Evolved, for example, PTX10001-36MR, PTX10003, PTX10004, PTX10008, QFX5130, QFX5220, etc.
-# re0:mgmt-* and re1:mgmt-*	Junos Evolved platforms typically support two management interfaces per Routing Engine. The two Routing Engines are identified as re0 and re1. The RJ-45 copper port on each Routing Engine is indexed as 0, while the SFP fiber port is indexed as 1.
-# For example, the RJ-45 management Ethernet port on Routing Engine 0 is typically named re0:mgmt-0.
-
+# This method is dependedn on the messages log in a certain format. Some JunOS switchs
+# don't use the same format and the SSH services doesn't show the source IP in the logs,
+# so a better method needs to be used.
+# This task will connect to the target device and to read the log message that gets
+# generated from the connection in order to see which IP the target is using to 
+# accept the connection. This is useful when the target devices is static NAT'd
+# behind a firewall
 - name: Get an IP from the target device that it should use as the source IP for outbound connections and add it to host_vars
   tags:
     - src_ip
@@ -89,35 +62,50 @@
     - name: Connect to the device and capture 'show log messages' output
       junipernetworks.junos.junos_command:
         commands:
-          - "show interfaces terse"
-      register: show_int_result
+          - "show log messages"
+      register: command_result
 
     - name: Fail if the junos_command failed
       ansible.builtin.fail:
         msg:
           #- "failed_conditions: {{ command_result.failed_conditions }}"
           - "stdout: {{ command_result.stdout }}"
-      when: show_int_result.failed
+      when: command_result.failed
 
-    - name: set a variable from a regex_replace
+    # Look for a line like this:
+    #  "May  7 17:00:36  agg01.bk mgd[28876]: UI_LOGIN_EVENT: User 'admin' login, class 'super-user' [28876], ssh-connection '10.1.3.58 47244 100.64.4.9 22', client-mode 'netconf'"
+    - name: Build a regex string for searching the log output for the last netconf login and extract just the source IP 
       ansible.builtin.set_fact:
-        source_ip: "{% set ns = namespace(found=false) -%}
-        {% for mgmt_if in mgmt_interfaces -%}
-           {% set search_str = '(?m)' + mgmt_if.if + '\\s+\\w+\\s+\\w+\\s+inet\\s+([0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3})' -%}
-           {% if ns.found == false and show_int_result.stdout|regex_findall(search_str)|length > 0 -%}
-{{ show_int_result.stdout|regex_replace('.*' + search_str + '.*', '\\1') }}
-              {% set ns.found = true -%}
-           {%- endif %}
-        {%- endfor %}"
+        source_search_str: ".*UI_LOGIN_EVENT: User [^\\s]+ login, class [^\\s]+ [^\\s]+ ssh-connection .{{ search_ip }} [^\\s]+ ([0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}) 22', client-mode 'netconf'"
 
-    - name: Fail if no management interface match
+    - name: Create a list of matching connection log items
+      ansible.builtin.set_fact:
+        source_list: "{{ command_result.stdout_lines[0] | select('match',source_search_str) | list }}"
+
+    - name: Fail if an event log matching a login with the ansible host's IP wasn't found
       ansible.builtin.fail:
-        msg: "No matching managment interfaces with IPv4 addresses found"
-      when: source_ip | length == 0
+        msg: "No SSH login event matching the Ansible host's IP was found in the log output"
+      when: source_list | length == 0
 
-    - name: Show the list variable
+    - name: Show the last matching connection log item in the list
       ansible.builtin.debug:
-        msg: "source ip: {{ source_ip }}"
+        # "{{ source_list[0] }}" # to use the first in the list
+        msg: "Last Matching Log Item = {{ source_list | last }}"
+
+    - name: Get a variable for the destination IP from the selected log list
+      ansible.builtin.set_fact:
+        #source_ip: "{{ source_list | last | regex_replace(\".*\\s+([0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}) \\d+.. client-mode .\\w+.\", '\\1') }}"
+        source_ip: "{{ source_list | last | regex_replace(\".*\\s+([0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}) \\d+.. client-mode .*\", '\\1') }}"
+
+      # if regex_replace doesn't find a match it will return the entire search string
+    - name: Fail if a source IP wasn't found
+      ansible.builtin.fail:
+        msg: "No match found"
+      when: source_list | last == source_ip
+
+    - name: Show the destination IP from the selected log item
+      ansible.builtin.debug:
+        msg: "Source IP = {{ source_ip }}" 
 
     #
     # Now, create a host_vars file for this ansible_host with the src_ipv4 variable

@@ -1,0 +1,5 @@
+#jinja2: trim_blocks: "true", lstrip_blocks: "true"
+delete firewall family inet filter {{ filter_name }} term {{ drop_ace_name }}
+{% for line in drop_ace_lines %}
+    {{- line }}
+{% endfor %}

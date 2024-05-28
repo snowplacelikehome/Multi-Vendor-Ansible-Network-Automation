@@ -1,0 +1,31 @@
+#jinja2: trim_blocks: "true", lstrip_blocks: "true"
+{% for user in aaa_user_templates %}
+set system login user {{ user.name }} full-name "{{ user.desc }}" uid {{ user.uid }} class {{ user.class }}
+{% endfor %}
+{% if radius_clear_servers is defined and radius_clear_servers != None %}
+    {% for srv in radius_clear_servers %}
+delete system radius-server {{ srv }}
+    {% endfor %}
+{% endif %}
+{% if tacplus_clear_servers != None %}
+    {% for srv in tacplus_clear_servers %}
+delete system tacplus-server {{ srv }}
+    {% endfor %}
+{% endif %}
+{% for ipv4 in aaa_server_ipv4s %}
+set system {{ aaa_type  }}-server {{ ipv4.server_ip }}
+set system {{ aaa_type }}-server {{ ipv4.server_ip }} timeout {{ aaa_timeout }}
+set system {{ aaa_type }}-server {{ ipv4.server_ip }} secret "{{ aaa_secret }}"
+set system {{ aaa_type }}-server {{ ipv4.server_ip }} source-address {{ src_ipv4 }}
+    {% if aaa_type == 'radius' %}
+set system radius-server {{ ipv4.server_ip }} port {{ radius_auth_port }}
+set system radius-server {{ ipv4.server_ip }} accounting-port {{ radius_acct_port }}
+    {% elif aaa_type == 'tacplus' %}
+set system tacplus-server {{ ipv4.server_ip }} port {{ tacplus_port }}
+    {% endif %}
+{% endfor %}
+{% if auth_order_clear %}
+delete system authentication-order
+{% endif %}
+set system authentication-order radius
+set system authentication-order password

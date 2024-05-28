@@ -1,13 +1,20 @@
-ntp:
-  ipv4_1: 10.1.1.4
-  ipv4_2: 10.1.1.5
-  desc: AD DC Server set through Ansible
-  tz:
-    name: EST
-    long_name: America/Indiana/Indianapolis
-    diff: -5
+ntp_server_ipv4s:
+  - name: NTP1
+    server_ip: 10.1.1.4
+  - name: NTP2
+    server_ip: 10.1.1.5
+ntp_server_descs:
+  - name: NTP1
+    server_desc: AD DC Server set through Ansible
+  - name: NTP2
+    server_desc: AD DC Server set through Ansible
+ntp_tz:
+  name: EST
+  long_name: America/Indiana/Indianapolis
+  diff: -5
   # for some environments it would make more sense to create a [location_name].yml for
   # the time zone and make some devices the child of the [location_name] group
+
 syslog:
   name: sysloghost
   ipv4: 10.1.1.45
@@ -15,11 +22,53 @@ syslog:
   severity: informational
   facility: local7
   desc: Syslog server for capturing session history set through Ansible
-aaa:
-  name: npshost
-  ipv4: 10.1.1.10
-  desc: Centralized Device Managment AAA Host set through Ansible
-# Used to encrypting config backup and pw files. Requires Ansible core 2.12
+
+aaa_server_names: 
+  - name: Server 1
+    server_name: npshost1
+  #- name: Server 2
+  #  name_2: munadmin2
+aaa_server_ipv4s:
+  - name: ipv4 1
+    server_ip: 10.1.1.60
+  #- name: ipv4 2
+  #  server_ip: 10.1.1.61
+aaa_server_descs:
+  - name: desc 1
+    server_desc: Centralized Device Managment AAA Host set through Ansible
+  #- name: desc 2
+  #  server_desc: Centralized Device Managment AAA Host set through Ansible
+aaa_timeout: 30
+
+# Define interfaces typically used in JunOS as management interfaces with IPs assigned
+mgmt_interfaces:
+  - name: First iface
+    if: lo0.0
+    if_ufmt: lo0 unit 0
+  - name: Second iface
+    if: fxp0.0
+    if_ufmt: fxp0 unit 0
+  - name: Third iface
+    if: vme.0
+    if_ufmt: vme unit 0
+  - name: Fourth iface
+    if: em0.0
+    if_ufmt: em0 unit 0
+  - name: Fifth iface
+    if: me0.0
+    if_ufmt: me0 unit 0
+  - name: Sixth iface
+    if: re0:mgmt-0.0
+    if_ufmt: re0:mgmt-0 unit 0
+  - name: Seventh iface
+    if: re0:mgmt-1.0
+    if_ufmt: re0:mgmt-1 unit 0
+  - name: Eighth iface
+    if: ge-0/0/0.0
+    if_ufmt: ge-0/0/0 unit 0
+
+mgmt_ipv4_prefix: 10.1.1.0/24
+
 backup_vault_secret: !vault |
           $ANSIBLE_VAULT;1.1;AES256
           00000000000000000000000000000000000000000000000000000000000000000000000000000000

@@ -1,0 +1,63 @@
+---
+# handlers file for assemble_apply
+- name: Handler to install the config on the device
+  tags:
+    - netconf
+    - netconf_acl
+    - aaa
+    - tacplus_acl
+    #- ntp
+    #- ntp_acl
+    - pw_dry
+    - syslog
+    - syslog_acl
+  block:
+    - name: Install the config on the device
+      tags:
+        - netconf_dry_run
+        - netconf_acl_dry_run
+        - aaa_dry_run
+        - tacplus_acl_dry_run
+        #- ntp_dry_run
+        #- ntp_acl_dry_run
+        - pw_dry_run
+        - syslog_dry_run
+        - syslog_acl_dry_run
+      ansible.builtin.command: cat {{ config_all|quote }}
+      register: command_output
+      notify: Print the commands
+
+    - name: Print the commands
+      tags:
+        - netconf_dry_run
+        - netconf_acl_dry_run
+        - aaa_dry_run
+        - tacplus_acl_dry_run
+        #- ntp_dry_run
+        #- ntp_acl_dry_run
+        - pw_dry_run
+        - syslog_dry_run
+        - syslog_acl_dry_run
+      ansible.builtin.debug:
+        msg: "{{ command_output.stdout }}"
+      changed_when: true
+      notify: Push the Full configuration
+
+    - name: Push the Full configuration
+      junipernetworks.junos.junos_config:
+        src: "{{ config_all }}"
+        confirm: 2
+      register: config_output
+    #  notify: Show Debug cli_output variable
+      when: "ansible_run_tags | select('match','.*dry_run') | list | length == 0"
+      notify: Reconnect and Confirm the Commit
+
+    #- name: Check for failures in the config result
+    #  ansible.builtin.fail:
+    #    msg: "The command ({{ item.item }}) did not have an empty response"
+    #  when: config_output.failed 
+    #  loop: '{{ command_output.results }}'
+    - name: Reconnect and Confirm the Commit
+      junipernetworks.junos.junos_config:
+        confirm_commit: true
+      when: "ansible_run_tags | select('match','.*dry_run') | list | length == 0"

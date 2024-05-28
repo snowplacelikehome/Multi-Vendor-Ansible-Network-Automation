@@ -1,0 +1,25 @@
+#jinja2: trim_blocks: "true", lstrip_blocks: "true"
+{% if aaa_prefix_list is defined and aaa_prefix_list | length > 0 and aaa_prefix_list != "None" %}
+   {{- 'delete policy-options prefix-list ' + aaa_prefix_list }}
+{% endif %}
+{% if aaa_filter_search_result is defined %}
+    {% for aaa_term in aaa_filter_search_result %}
+        {{- 'delete firewall family inet filter ' + filter_name + ' term ' + aaa_term }}
+    {% endfor %}
+{% endif %}
+set policy-options prefix-list {{ ace.aaa.src_prefix_list_name }} apply-path "system {{ aaa_type }}-server <*>"
+{% if aaa_type == "tacplus" %}
+set firewall family inet filter {{ filter_name }} term {{ ace.aaa.name }} from source-prefix-list {{ ace.aaa.src_prefix_list_name }}
+set firewall family inet filter {{ filter_name }} term {{ ace.aaa.name }} from destination-prefix-list {{ mgmt_ipv4_prefix_list }}
+set firewall family inet filter {{ filter_name }} term {{ ace.aaa.name }} from protocol tcp
+set firewall family inet filter {{ filter_name }} term {{ ace.aaa.name }} from source-port tacacs
+set firewall family inet filter {{ filter_name }} term {{ ace.aaa.name }} from source-port tacacs-ds
+set firewall family inet filter {{ filter_name }} term {{ ace.aaa.name }} from tcp-established
+set firewall family inet filter {{ filter_name }} term {{ ace.aaa.name }} then accept
+{% elif aaa_type == "radius" %}
+set firewall family inet filter {{ filter_name }} term {{ ace.aaa.name }} from source-prefix-list {{ ace.aaa.src_prefix_list_name }}
+set firewall family inet filter {{ filter_name }} term {{ ace.aaa.name }} from protocol udp
+set firewall family inet filter {{ filter_name }} term {{ ace.aaa.name }} from source-port {{ radius_auth_port }}
+set firewall family inet filter {{ filter_name }} term {{ ace.aaa.name }} from source-port {{ radius_acct_port }}
+set firewall family inet filter {{ filter_name }} term {{ ace.aaa.name }} then accept
+{% endif %}

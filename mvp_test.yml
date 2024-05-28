@@ -1,0 +1,123 @@
+---
+- name: MVP Test
+  # hosts: junos
+  # Run with:
+  # ansible-playbook ../mvp_test.yml -vvv --ask-vault-pass --tags mvp
+  hosts: localhost
+  # Run with:
+  # ansible-playbook -vvv -i localhost, ../mvp_test.yml --tags mvp,debug,netconf_acl
+  connection: local
+  gather_facts: no
+  vars:
+    prefix_lists:
+      mgmt_if:
+        name: mgmt-interface-ips
+        used_by: 
+          - ntp_acl
+          - ntp_acl_dry_run
+          - syslog_acl
+          - syslog_acl_dry_run
+          - aaa_acl
+          - aaa_acl_dry_run
+      mgmt_nets:
+        name: mgmt-nets
+        used_by: 
+          - netconf_acl
+          - netconf_acl_dry_run
+          #- snmp
+      radius_servers:
+        name: radius-servers
+      tacplus_servers:
+        name: tacplus-servers
+      syslog_servers:
+        name: syslog-servers
+      ntp_servers:
+        name: ntp-servers
+
+    mgmt_interfaces:
+      - name: First iface
+        if: lo0.0
+      - name: Second iface
+        if: fxp0.0
+      - name: Third iface
+        if: vme.0
+      - name: Fourth iface
+        if: em1.0
+      - name: Fifth iface
+        if: me0.0
+      - name: Sixth iface
+        if: re0:mgmt-0.0
+      - name: Seventh iface
+        if: re0:mgmt-1.0
+      - name: Eighth iface
+        if: ge-0/0/0.0
+    filter_name: MGMT-Filter
+    # command_output: "May  7 17:00:35  agg01.bk mgd[28890]: UI_LOGIN_EVENT: User 'admin' login, class 'super-user' [28890], ssh-connection '10.1.3.58 47244 100.64.4.9 22', client-mode 'cli',
+    #09-Sep-2014 01:47:28 :%AAA-I-CONNECT: User CLI session for user jkm over ssh , source 10.10.1.61 destination  10.10.1.2 ACCEPTED
+    #May  7 17:00:36  agg01.bk mgd[28876]: UI_LOGIN_EVENT: User 'admin' login, class 'super-user' [28876], ssh-connection '10.1.3.58 47244 100.64.4.9 22', client-mode 'netconf',
+    #May  7 17:00:35  agg01.bk mgd[28890]: UI_LOGIN_EVENT: User 'admin' login, class 'super-user' [28890], ssh-connection '10.1.3.58 47244 100.64.4.9 22', client-mode 'cli',
+    #May  7 17:00:36  agg01.bk mgd[28876]: UI_LOGIN_EVENT: User 'admin' login, class 'super-user' [28876], ssh-connection '10.1.3.58 47244 100.64.4.9 22', client-mode 'netconf',"
+    config_output: |
+      set system radius-server 10.10.1.60 timeout 30
+      set system radius-server 10.10.1.60 source-address 10.10.1.29
+      set system syslog file firewall firewall info
+      set system syslog file interactive-commands interactive-commands any
+      set system syslog file messages any notice
+      set system syslog file messages authorization info
+      set system processes dhcp-service traceoptions file dhcp_logfile
+      set system processes dhcp-service traceoptions file size 10m
+      set system processes dhcp-service traceoptions level all
+      set system processes dhcp-service traceoptions flag packet
+      set system ntp server 10.10.1.4
+      set system ntp server 10.10.1.5
+      set system ntp server 10.10.1.5 asdf
+      set interfaces fxp0 unit 0 family inet dhcp vendor-id Juniper-ex9214-VM6643C043BD
+      set interfaces fxp0 unit 0 family inet filter input MGMT-Filter
+      set interfaces fxp0 unit 0 family inet6 dhcpv6-client client-type stateful
+      set interfaces fxp0 unit 0 family inet6 dhcpv6-client client-ia-type ia-na
+      set interfaces fxp0 unit 0 family inet6 dhcpv6-client client-identifier duid-type duid-ll
+      set interfaces fxp0 unit 0 family inet6 dhcpv6-client vendor-id Juniper:ex9214:VM6643C043BD
+      set firewall family inet filter MGMT-Filter term netconf from source-prefix-list mgmt-nets
+      set firewall family inet filter MGMT-Filter term netconf from protocol tcp
+      set firewall family inet filter MGMT-Filter term netconf from destination-port 830
+      set firewall family inet filter MGMT-Filter term netconf then accept
+      set firewall family inet filter MGMT-Filter term ntp-in from source-prefix-list all-interface-ips
+      set firewall family inet filter MGMT-Filter term ntp-in from source-prefix-list ntp-servers
+      set firewall family inet filter MGMT-Filter term ntp-in from protocol udp
+      set firewall family inet filter MGMT-Filter term ntp-in from destination-port ntp
+      set firewall family inet filter MGMT-Filter term ntp-in then reject
+      set firewall family inet filter MGMT-Filter term ntp-out from destination-prefix-list all-interface-ips
+      set firewall family inet filter MGMT-Filter term ntp-out from destination-prefix-list ntp-servers
+      set firewall family inet filter MGMT-Filter term ntp-out from source-port ntp
+      set firewall family inet filter MGMT-Filter term ntp-out from protocol udp
+      set firewall family inet filter MGMT-Filter term default-discard then count default-discard
+      set firewall family inet filter MGMT-Filter term default-discard then log
+      set firewall family inet filter MGMT-Filter term default-discard then discard
+      set protocols router-advertisement interface fxp0.0 managed-configuration
+      set protocols lldp interface all
+  tags: mvp
+  tasks:
+    - name: Build a test_var directly
+      ansible.builtin.set_fact:
+        test_var: 
+          - { name: 'testuser1', groups: 'wheel' }
+          - { name: 'testuser2', groups: 'root' }
+
+    - name: Show a combined list of users, plus user templates
+      ansible.builtin.set_fact:
+        test_var2: "{{ aaa_user_templates + test_var }}"
+
+    - name: test_var3 List of just names
+      ansible.builtin.set_fact:
+        test_var3: >-
+            {%- set names = [ { 'name': pw.user } ] -%} 
+            {%- for t in aaa_user_templates -%}
+            {{ names.append( { 'name': t.name } ) }}
+            {%- endfor -%}
+            {{ names }}  
+
+    #- name: Set a variable
+    #  ansible.builtin.set_fact:
+    #    listvar: 
+    #      - "{{ pw.user }}"
+    #      - "{{ aaa_user_templates.items() }}"

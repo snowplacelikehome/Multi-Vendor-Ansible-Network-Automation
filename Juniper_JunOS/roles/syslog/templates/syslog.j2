@@ -1,0 +1,11 @@
+#jinja2: trim_blocks: "true", lstrip_blocks: "true"
+{% if syslog_clear_servers is defined %}
+    {% for host in syslog_clear_servers %}
+delete system syslog host {{ host }}
+    {% endfor %}
+{% endif %}
+set system syslog host {{ syslog.ipv4 }} user info
+set system syslog host {{ syslog.ipv4 }} change-log notice
+set system syslog host {{ syslog.ipv4 }} interactive-commands info
+set system syslog host {{ syslog.ipv4 }} port {{ syslog.port }}
+set system syslog host {{ syslog.ipv4 }} source-address {{ src_ipv4 }}

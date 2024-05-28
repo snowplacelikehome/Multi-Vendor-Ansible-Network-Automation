@@ -16,8 +16,8 @@ pushd $PWD
 cd `dirname $0`
 cd ..
 
-# find symbolic links of all *.yml files except for all.yml. Remove the link and
+# find symbolic links of all *.yml files except for main.yml and all.yml. Remove the link and
 # add a new link with .$0 before .yml
-find . -type l -a -name \*.yml -a \! -name all.yml -print -execdir sh -c 'f="'{}'"; f="${f##*/}"; echo "  " rm "$f"; rm "$f"; echo "  " ln -s "${f%.yml}.'$1'.yml" "$f"; ln -s "${f%.yml}.'$1'.yml" "$f"' \;
+find . -type l -a -name \*.yml -a \! -name main.yml -a \! -name all.yml -print -execdir sh -c 'f="'{}'"; f="${f##*/}"; echo "  " rm "$f"; rm "$f"; echo "  " ln -s "${f%.yml}.'$1'.yml" "$f"; ln -s "${f%.yml}.'$1'.yml" "$f"' \;
 
 popd

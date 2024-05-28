@@ -4,73 +4,109 @@
   tags:
     - aaa
   block:
-    # First, build commands to remove any previously configured AAA servers
+    # First, determine whether it's necessary to remove any previously configured AAA settings
     - name: Capture show configuration output for AAA cleanup
       tags: aaa_dry_run
       junipernetworks.junos.junos_command:
         commands:
           - "show configuration"
         display: set
-      register: config_output
+      register: config_result
+      when: "config_output is not defined or config_output|length == 0"
 
+    - name: Save the configuration output to a variable
+      tags: aaa_dry_run
+      ansible.builtin.set_fact:
+        config_output: "{{ config_result.stdout }}"
+      when: config_result.stdout is defined and config_result.stdout | length > 0
+    
     - name: Fail if the config has RADIUS set up
       tags: aaa_dry_run
       ansible.builtin.fail:
-        msg: "{{ansible_host}} contains a pre-existing radius configuration. Remove manually before proceeding"
+        msg: "{{ inventory_hostname }}/{{ ansible_host }} contains a pre-existing radius configuration. Remove manually before proceeding"
       # the regex_findall result will be > 0 if it finds "system radius-server SOME_WORD" in the config
-      when: config_output.stdout | regex_findall("(?m)system radius-server [\\w\\.-]+")|length > 0
+      when: "config_output | regex_findall('(?m)system radius-server [\\w\\.-]+')|length > 0 and 'clear_radius' not in ansible_run_tags"
 
-    - name: Build set of tacplus cleanup commands
+    - name: Build list of RADIUS servers from the config to clear
       tags: aaa_dry_run
       ansible.builtin.set_fact:
-        tacplus_clear_commands: 
-          - "delete system tacplus-server"
-      # the regex_findall result will be > 0 if it finds "system tacplus-server SOME_WORD" in the config
-      when: config_output.stdout | regex_findall("(?m)system tacplus-server [\\w\\.-]+")|length > 0
+        # the regex_findall will return a list of matching lines and the group causes it to return just server name or IP
+        radius_clear_servers: "{{ config_output | regex_findall('(?m)system radius-server ([\\w\\.-]+)') | unique }}"
+      when: "config_output | regex_findall('(?m)system radius-server [\\w\\.-]+')|length > 0 and 'clear_radius' in ansible_run_tags"
 
-    # Second, build commands to add the standard AAA configuration
-    - name: Build set of new AAA configuration commands
+    - name: Build tacplus cleanup commands if the config has TACACS+ enabled
       tags: aaa_dry_run
       ansible.builtin.set_fact:
-        aaa_config_commands:
-          - 'set system login user remote-admin full-name "User template for remote super-users" uid 2010 class super-user'
-          - 'set system login user remote-operator full-name "User template for remote operator users" uid 2011 class operator'
-          - 'set system login user remote-read-only full-name "User template for remote read-only users" uid 2012 class read-only'
-          #
-          - "delete system authentication-order"
-          - "set system authentication-order [tacplus password]"
-          #
-          - "set system tacplus-server {{ aaa.ipv4_1 }} secret \"{{ tacplus_secret }}\" timeout {{ aaa.timeout }}"
-          - "set system tacplus-server {{ aaa.ipv4_1 }} port {{ tacplus_port }} source-address {{ src_ipv4 }}"
-          - "set system tacplus-server {{ aaa.ipv4_2 }} secret \"{{ tacplus_secret }}\" timeout {{ aaa.timeout }}"
-          - "set system tacplus-server {{ aaa.ipv4_2 }} port {{ tacplus_port }} source-address {{ src_ipv4 }}"
-          #
-          - "set system accounting events login"
-          - "set system accounting events interactive-commands"
-          - "set system accounting destination tacplus"
+        tacplus_clear_servers: "{{ config_output | regex_findall('(?m)system tacplus-server ([\\w\\.-]+)') | unique }}"
 
-    - name: List all of the AAA configuration commands that would be pushed
+    - name: Build authentication-order cleanup commands
       tags: aaa_dry_run
-      ansible.builtin.debug:
-        msg: "{{ item }}"
-      #loop: "{{ aaa_clear_commands + aaa_config_commands }}"
-      loop: "{{ tacplus_clear_commands + aaa_config_commands }}"
-      when: "'debug' in ansible_run_tags"
+      ansible.builtin.set_fact:
+        auth_order_clear: "{{ config_output | regex_findall('(?m)system authentication-order')|length > 0 }}"
 
-    - name: Push the AAA configuration
-      junipernetworks.junos.junos_config:
-        lines: "{{ tacplus_clear_commands + aaa_config_commands }}"
-      #  lines: "{{ item }}"
-      #loop: "{{ tacplus_clear_commands + aaa_config_commands }}"
-      register: config_result
-      # changed_when: command_output.stdout|length <= 0
-
-    # Setup filter ACLs for TACACS+
-
-    - name: Include interface filter ACLs for TACACS+
+    - name: Build aaa.conf file from the template
       tags: aaa_dry_run
-      ansible.builtin.include_tasks:
-        file: lo_filter.yml
-        #apply:
-        #  tags:
-        #    - lo_filter
+      ansible.builtin.template:
+        src: aaa.j2
+        dest: "{{ config_build }}/03_aaa.conf"
+
+    #- name: Build tacplus cleanup commands
+    #  tags: aaa_dry_run
+    #  ansible.builtin.set_fact:
+    #    tacplus_clear_commands: 
+    #      - "delete system tacplus-server"
+    #  # the regex_findall result will be > 0 if it finds "system tacplus-server SOME_WORD" in the config
+    #  when: config_output | regex_findall("(?m)system tacplus-server [\\w\\.-]+")|length > 0
+
+    #- name: Build authentication-order cleanup commands
+    #  tags: aaa_dry_run
+    #  ansible.builtin.set_fact:
+    #    tacplus_clear_commands: "{% if tacplus_clear_commands is defined %}{{ tacplus_clear_commands + ['delete system authentication-order'] }}{% else %}{{ ['delete system authentication-order'] }}{% endif %}"
+    #  # the regex_findall result will be > 0 if it finds "system tacplus-server SOME_WORD" in the config
+    #  when: config_output | regex_findall("(?m)system authentication-order")|length > 0
+
+    #- name: Build aaa.conf file from the template
+
+    ## Second, build commands to add the standard AAA configuration
+    #- name: Build set of new AAA configuration commands
+    #  tags: aaa_dry_run
+    #  ansible.builtin.set_fact:
+    #    aaa_config_commands:
+    #      - 'set system login user remote-admin full-name "User template for remote super-users" uid 2010 class super-user'
+    #      - 'set system login user remote-operator full-name "User template for remote operator users" uid 2011 class operator'
+    #      - 'set system login user remote-read-only full-name "User template for remote read-only users" uid 2012 class read-only'
+    #      #
+    #      - "set system authentication-order [tacplus password]"
+    #      #
+    #      - "set system tacplus-server {{ aaa.ipv4_1 }} secret \"{{ tacplus_secret }}\" timeout {{ aaa.timeout }}"
+    #      - "set system tacplus-server {{ aaa.ipv4_1 }} port {{ tacplus_port }} source-address {{ src_ipv4 }}"
+    #      - "set system tacplus-server {{ aaa.ipv4_2 }} secret \"{{ tacplus_secret }}\" timeout {{ aaa.timeout }}"
+    #      - "set system tacplus-server {{ aaa.ipv4_2 }} port {{ tacplus_port }} source-address {{ src_ipv4 }}"
+    #      #
+    #      - "set system accounting events login"
+    #      - "set system accounting events interactive-commands"
+    #      - "set system accounting destination tacplus"
+
+    #- name: List all of the AAA configuration commands that would be pushed
+    #  tags: aaa_dry_run
+    #  ansible.builtin.debug:
+    #    msg: "{{ item }}"
+    #  #loop: "{{ aaa_clear_commands + aaa_config_commands }}"
+    #  loop: "{% if tacplus_clear_commands is defined %}{{ tacplus_clear_commands + aaa_config_commands }}{% else %}{{ aaa_config_commands }}{% endif %}"
+    #  when: "'debug' in ansible_run_tags"
+#
+    #- name: Push the AAA configuration
+    #  junipernetworks.junos.junos_config:
+    #    lines: "{% if tacplus_clear_commands is defined %}{{ tacplus_clear_commands + aaa_config_commands }}{% else %}{{ aaa_config_commands }}{% endif %}"
+    #  register: config_result
+#
+    # Setup filter ACLs for AAA
+
+    #- name: Include interface filter ACLs for AAA
+    #  tags: aaa_dry_run
+    #  ansible.builtin.include_tasks:
+    #    file: lo_filter.yml
+    #    #apply:
+    #    #  tags:
+    #    #    - lo_filter
+    #  when: "'aaa_acl' in ansible_run_tags or 'aaa_acl_dry_run' in ansible_run_tags"

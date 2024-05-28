@@ -1,0 +1,4 @@
+#jinja2: trim_blocks: "true", lstrip_blocks: "true"
+{# A common prefix-list for the management interface's IP would look like this #}
+{# set policy-options prefix-list mgmt-interface-ips apply-path "interfaces <lo0> unit <0> family inet address <*>" #}
+set policy-options prefix-list {{ prefix_lists.mgmt_if.name }} apply-path "interfaces {{ mgmt_if_path }} family inet address <*>"

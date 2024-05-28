@@ -13,7 +13,7 @@
         - ntp_dry_run
         - pw_dry_run
         - syslog_dry_run
-      ansible.builtin.command: cat {{ config_assemble|quote }}/all.conf
+      ansible.builtin.command: cat {{ config_all|quote }}
       register: command_output
       notify: Print the commands
 

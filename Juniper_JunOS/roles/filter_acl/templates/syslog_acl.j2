@@ -1,0 +1,12 @@
+#jinja2: trim_blocks: "true", lstrip_blocks: "true"
+{% if syslog_filter_search_result is defined %}
+    {% for syslog_term in syslog_filter_search_result %}
+        {{- 'delete firewall family inet filter ' + filter_name + ' term ' + syslog_term }}
+    {% endfor %}
+{% endif %}
+set policy-options prefix-list {{ ace.syslog.dst_prefix_list_name }} {{ syslog.ipv4 }}/32
+set firewall family inet filter {{ filter_name }} term {{ ace.syslog.name }} from source-prefix-list {{ mgmt_if_prefix_list }}
+set firewall family inet filter {{ filter_name }} term {{ ace.syslog.name }} from destination-prefix-list {{ ace.syslog.dst_prefix_list_name }}
+set firewall family inet filter {{ filter_name }} term {{ ace.syslog.name }} from protocol udp
+set firewall family inet filter {{ filter_name }} term {{ ace.syslog.name }} from destination-port syslog
+set firewall family inet filter {{ filter_name }} term {{ ace.syslog.name }} then accept

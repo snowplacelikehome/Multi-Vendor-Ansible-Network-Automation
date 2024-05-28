@@ -1,0 +1,588 @@
+---
+# tasks file for filter_acl
+# NOTE: this should only be run after the netconf and src_ip roles have been run
+#
+# These tasks will look for a filter on the interface being used for management services
+# and attempt to add any ACEs that are needed for it to communicate with the Ansible(Netconf),
+# AAA and Syslog servers. This play will attempt to replace any ACE's that already exist
+# for those services. 
+
+#
+# Before building ACE config files for the different services,
+# Get the device's config and set facts that will be used by all services
+#
+- name: Update the management interface filter to allow needed JunOS device services to communicate with management systems
+  tags:
+    - netconf_acl
+    - ntp_acl
+    - aaa_acl
+    - syslog_acl
+    - ntp_acl_dry_run
+    - netconf_acl_dry_run
+    - aaa_acl_dry_run
+    - syslog_acl_dry_run
+  block:
+    - name: Capture show configuration output for interface filter/ACL review
+      junipernetworks.junos.junos_command:
+        commands:
+          - "show configuration"
+        display: set
+      register: config_result
+      when: config_output is not defined or config_output | length == 0
+
+    - name: Save the configuration output to a variable
+      ansible.builtin.set_fact:
+        config_output: "{{ config_result.stdout }}"
+      when: config_result.stdout is defined and config_result.stdout | length > 0
+    
+    # Find the interface that has the src_ipv4 (needs hosts_vars/inventory_hostname.yml created by the src_ip role
+    # Look for an interace with settings like these:
+    #   set interfaces lo0 unit 0 family inet filter input RE-protect
+    #   set interfaces lo0 unit 0 family inet address 100.64.4.9/32
+    - name: Create a regex variable that will be used to search for the interface that has this src_ipv4
+      ansible.builtin.set_fact:
+        # When getting a list of all multiple matches with regex_findall()
+        #src_if_search: "{{ '(?m)set interfaces ([\\w/-]+(?:(?:\\s\\w+){0,2})) family inet address ' + src_ipv4 + '/\\d+' }}"
+        # Look for one match in the entire multi-line file and return only the interface and optional "unit #"
+        src_if_search: "{{ '(?m)set interfaces ([\\w/-]+(?:(?:\\s\\w+){0,2})) family inet address ' + src_ipv4 + '/\\d+' }}"
+
+    - name: Get the interface that has this src_ipv4
+      ansible.builtin.set_fact:
+        #src_if: "{{ config_output | regex_findall(src_if_search) }}"
+        src_if: "{{ config_output | regex_search(src_if_search) | regex_replace('set interfaces ([\\w/-]+(?:(?:\\s\\w+){0,2})) family .*', '\\1') }}"
+
+      # check if one of the usual JunOS management interfaces is using dhcp, which might look like this
+      #    set interfaces fxp0 unit 0 family inet dhcp vendor-id Juniper-ex9214-VM6643C043BD
+    - name: set a variable from a regex_replace
+      ansible.builtin.set_fact:
+        src_if: "{% set ns = namespace(found=false) -%}
+          {% for mgmt_if in mgmt_interfaces -%}
+             {% set search_str = '(?m)set interfaces ' + mgmt_if.if_ufmt + ' family inet dhcp ' -%}
+             {% set search_result = config_output|regex_findall(search_str) -%}
+             {% if ns.found == false and search_result|length > 0 and search_result != None -%}
+               {{ mgmt_if.if_ufmt }}
+               {%- set ns.found = true -%}
+             {%- endif %}
+          {%- endfor %}"
+      when: src_if|length == 0 or src_if == "None"
+
+    - name: Fail when matching interface not found
+      ansible.builtin.fail:
+        msg: "Unable to find interface with {{ src_ipv4 }} assigned. {{ inventory_hostname }} needs manual review."
+      when: src_if|length == 0
+
+    - name: Print the interface search result
+      ansible.builtin.debug:
+        msg: "Iterface with ipv4={{ src_ipv4 }}: {{ src_if }}"
+      when: "'debug' in ansible_run_tags"
+
+    - name: Create a regex variable that will be used to search for the input filter name of the found interface
+      ansible.builtin.set_fact:
+        filter_search: "{{ '(?m)set interfaces ' + src_if + ' family inet filter input ([\\w.-]+)' }}"
+
+    - name: Get the input filter name that has this interface name
+      ansible.builtin.set_fact:
+        #src_if: "{{ config_output | regex_findall(src_if_search) }}"
+        filter_name: "{{ config_output | regex_search(filter_search) | regex_replace('.* filter input ([\\w.-]+)', '\\1') }}"
+
+    - name: Print the filter name search result
+      ansible.builtin.debug:
+        msg: "filter with interface={{ src_if }}: {{ filter_name }}"
+      when: "'debug' in ansible_run_tags"
+    
+    - name: No changes needed for devices without interface filters - assuming they don't need ACL's
+      block:
+      # No fiter was found on the interface associated with the src_ip. Assume this device will not need ACLs
+        - name: Explain why to end the play for this host
+          ansible.builtin.debug:
+            msg: "skipping ACLs for interface {{ src_if }} associated with {{ src_ipv4 }} that does not appear to have a filter.\\n interface config='{{ config_output | regex_search(filter_search) }}'"
+
+        - name: End the play for this hosts
+          ansible.builtin.meta: end_host
+
+      # Before Ansible 2.11, a meta action cannot be skipped with tags, so check that the filter_name
+      # is defined so it's block isn't evaluated for roles that don't use filter_acl's tags
+      when: filter_name is defined and filter_name|length<=0 or filter_name == "None"
+
+    # get the name of a previx-list that uses apply-path with the interface previously identified
+    # example prefix-list:
+    # set policy-options prefix-list prefix-list-lo0 apply-path "interfaces <lo0> unit <0> family inet address <*>"
+    - name: Get a path format with angle brackets for the interface's name 
+      ansible.builtin.set_fact:
+        if_path_tmp: "{{ src_if | regex_replace('^([\\w/-]+)', '<\\1>') }}"
+
+    - name: Get a path format with angle brackets for the interface's unit 
+      ansible.builtin.set_fact:
+        mgmt_if_path: "{{ if_path_tmp | regex_replace('(.*) unit (\\d+)', '\\1 unit <\\2>') }}"
+
+    - name: Create a regex variable that will be used get the prefix-list name associated with the mgmt_if_path
+      ansible.builtin.set_fact:
+        prefix_list_search: "{{ '(?m)set policy-options prefix-list ([\\w/.-]+) apply-path \"interfaces ' + mgmt_if_path + ' family inet address ' }}"
+
+    # regex_search returns "None" when it doesn't match and then regex_replace will leave it that way when it doesn't match
+    - name: Get the name of the prefix-list that matches the mgmt_if_path
+      ansible.builtin.set_fact:
+        mgmt_if_prefix_list: "{{ config_output | regex_search(prefix_list_search) | regex_replace('.* prefix-list ([\\w/.-]+) apply-path .*', '\\1') }}"
+
+    - name: Print the mgmt_if_path prefix-list search result
+      ansible.builtin.debug:
+        msg: "prefix-list with mgmt_if_path={{ mgmt_if_path }}: {{ mgmt_if_prefix_list }}"
+      when: "'debug' in ansible_run_tags"
+
+    # If there already is a management access prefix-list in-use, use it, otherwise
+    # Some services, like Netconf will need to be addressed manually, usually by looking
+    # at however SSH is filtered
+    - name: Create a regex variable to search for a prefix-list containing the mgmt subnet
+      ansible.builtin.set_fact:
+        mgmt_ipv4_prefix_search: "{{ '(?m)set policy-options prefix-list [\\w/.-]+ ' + mgmt_ipv4_prefix }}"
+
+    - name: Get the prefix-lists used to validate the management networks
+      ansible.builtin.set_fact:
+        mgmt_ipv4_prefix_list: "{{ config_output | regex_search(mgmt_ipv4_prefix_search) | regex_replace('.* prefix-list\\s+([\\w/.-]+) .*', '\\1') }}"
+
+    - name: Print the mgmt prefix-list search result
+      ansible.builtin.debug:
+        msg: "prefix-list with the mgmt subnet={{ mgmt_ipv4_prefix }}: {{ mgmt_ipv4_prefix_list }}"
+      when: "'debug' in ansible_run_tags"
+
+    #
+    # If these tasks are going to create prefix_list's when don't exist, set booleans and
+    # prefix_list names so the templates know how to create them and the services specific
+    # sections know how to use them
+    #
+    - name: Set a variables to control how the shared prefix lists will be edited and used
+      ansible.builtin.set_fact:
+        # Set a variable to indicate that the existing Mgmt interface prefix-list should be used
+        existing_mgmt_if_prefix_list: "{% if mgmt_if_prefix_list|length>0 and mgmt_if_prefix_list != 'None' %}True{% else %}False{% endif %}"
+        # Update the mgmt interface IPs prefix list name to the default in group_vars when one wasn't found in the config
+        mgmt_if_prefix_list: "{% if mgmt_if_prefix_list|length>0 and mgmt_if_prefix_list != 'None' %}{{ mgmt_if_prefix_list }}{% else %}{{ prefix_lists.mgmt_if.name }}{% endif %}"
+        # Set a variable to indicate that the existing Mgmt IPs prefix-list should be used
+        existing_mgmt_ipv4_prefix_list: "{% if mgmt_ipv4_prefix_list|length>0 and mgmt_ipv4_prefix_list != 'None' %}True{% else %}False{% endif %}"
+        # Update the mgmt networks prefix list name to the default in group_vars when one wasn't found in the config
+        mgmt_ipv4_prefix_list: "{% if mgmt_ipv4_prefix_list|length>0 and mgmt_ipv4_prefix_list != 'None' %}{{ mgmt_ipv4_prefix_list }}{% else %}{{ prefix_lists.mgmt_nets.name }}{% endif %}"
+
+    # Create the prefix_list config files from thier templates
+    - name: Build prefix_list_mgmt_if_ips.conf file from the template
+      ansible.builtin.template:
+        src: prefix_list_mgmt_if_ips.j2
+        dest: "{{ config_build }}/10_prefix_lists_mgmt_if_ips.conf"
+      when: not existing_mgmt_if_prefix_list and ansible_run_tags | intersect(prefix_lists.mgmt_if.used_by) | length > 0
+
+    - name: Build prefix_lists_mgmt_nets.conf file from the template
+      ansible.builtin.template:
+        src: prefix_list_mgmt_nets.j2
+        dest: "{{ config_build }}/10_prefix_list_mgmt_nets.conf"
+      when: not existing_mgmt_ipv4_prefix_list and ansible_run_tags | intersect(prefix_lists.mgmt_nets.used_by) | length > 0
+
+    #
+    # It might be best not to try and proceed with ACL changes if the expected management
+    # prefix list doesn't already exist. If it becomes problematic, comment out the above code
+    # uncomment this code
+    #- name: Ensure the typical prefix-list of management subnets is already defined before proceeding
+    #  block:
+    #    - name: Explain why to end the play for this host when 
+    ## No fiter was found on the interface associated with the src_ip. Assume this device will not need ACLs
+    #      ansible.builtin.debug:
+    #        msg: "skipping ACLs for the { filter_name }} filter where the expected prefix-list with the {{ mgmt_ipv4_prefix }} managment subnets wasn't found.\\nACLs will need to be added manually"
+    #
+    #    - name: End the play for this hosts
+    #      ansible.builtin.meta: end_host
+    #
+    #  when: mgmt_ipv4_prefix_list|length>0 and mgmt_ipv4_prefix_list != "None"
+
+    #
+    # Get the name of first ACE term that will discard or reject traffic. New ACE's
+    # will be inserted before this with a junos_command sequence.
+    #
+
+#
+# Send the Netconf ACE config
+#
+
+# Configure the device with the ACL to allow Netconf through the interface's filter
+- name: Begin NetConf ACL Config
+  tags: netconf_acl
+  block:
+    # < - replaced by prefixlists.j2 template
+    # Add a prefix-list like this, if there isn't an existing Mgmt list
+    #  set policy-options prefix-list prefix-list-mgmt-access-ip 10.1.3.0/24
+    #- name: If there isn't an existing Mgmt prefix-list, create one just for Netconf
+    #  block:
+    #    - name: Showing the Netconfi prefix-list config
+    #      tags: netconf_acl_dry_run
+    #      ansible.builtin.debug:
+    #        msg: "set policy-options prefix-list {{ ace.netconf.src_prefix_list_name }} {{ mgmt_ipv4_prefix }}"
+    #      when: "'debug' in ansible_run_tags"
+
+    #    #- name: Merge a Netconf acces prefix-list
+    #    #  tags: netconf_acl_dry_run
+    #    #  junipernetworks.junos.junos_prefix_lists:
+    #    #    config:
+    #    #      - name: "{{ ace.netconf.src_prefix_list_name }}"
+    #    #        address_prefixes:
+    #    #          - "{{ mgmt_ipv4_prefix }}"
+    #    #    state: "{% if 'netconf_acl_dry_run' in ansible_run_tags %}rendered{% else %}merged{% endif %}"
+
+    #    - name: Set the prefix-lists name for the ACE
+    #      tags: netconf_acl_dry_run
+    #      ansible.builtin.set_fact:
+    #        mgmt_ipv4_prefix_list: "{{ ace.netconf.src_prefix_list_name }}"
+
+    #  when: not existing_mgmt_ipv4_prefix_list
+    # > - replaced by prefixlists.j2 template
+
+    # < - replaced by netconf_acl.j2 template
+    #- name: Merge the NetConf ACE into the firewall (interface filter) config
+    #  junipernetworks.junos.junos_config:
+    #    lines: 
+    #      #- "delete firewall family inet filter {{ filter_name }} term {{ ace.aaa.name }}"
+    #      - "set firewall family inet filter {{ filter_name }} term {{ ace.netconf.name }} from source-prefix-list {{ mgmt_ipv4_prefix_list }}"
+    #      - "set firewall family inet filter {{ filter_name }} term {{ ace.netconf.name }} from protocol tcp"
+    #      - "set firewall family inet filter {{ filter_name }} term {{ ace.netconf.name }} from destination-port 830"
+    #      - "set firewall family inet filter {{ filter_name }} term {{ ace.netconf.name }} then accept"
+    #  register: config_result
+    # > - replaced by netconf_acl.j2 template
+
+    - name: Build netconf_acl.conf file from the template
+      tags: netconf_acl_dry_run
+      ansible.builtin.template:
+        src: netconf_acl.j2
+        dest: "{{ config_build }}/11_netconf_acl.conf"
+
+    # < This next section has been replaced by the config delete and re-add block at the end
+    #
+    ## The ACE will be inserted at the end after the default deny ACE, so use
+    ## separate commands to move it up
+    #- name: Set the ACE term name the template needs for this service
+    #  tags: netconf_acl_dry_run
+    #  ansible.builtin.set_fact:
+    #    acename: "{{ ace.netconf.name }}"
+
+    #- name: generate an XML from the ACE reorder template
+    #  tags: netconf_acl_dry_run
+    #  template:
+    #    src: aceorder.j2
+    #    dest: aceorder.xml
+    #    #owner: ubuntu
+    #    #group: ubuntu
+    #    mode: '0640'
+
+    #- name: Load XML config to move the ACE in front of any ACE's with deny actions
+    #  junipernetworks.junos.junos_config:
+    #    src: aceorder.xml
+    #    src_format: xml
+    #  register: config_result
+    # >
+
+#
+# Set the NTP ACLs
+#
+
+# The JunOS device needs to be able to query it's own local ntp service from it's managemeitn interface and the remote ntp servers
+# Expected ntp ACEs:
+# set firewall family inet filter MGMT-Filter term ntp from source-prefix-list mgmt-interface-ips
+# set firewall family inet filter MGMT-Filter term ntp from source-prefix-list ntp-servers
+# set firewall family inet filter MGMT-Filter term ntp from protocol udp
+# set firewall family inet filter MGMT-Filter term ntp from port ntp
+# set firewall family inet filter MGMT-Filter term ntp then accept
+
+- name: Begin NTP ACL Config
+  tags: ntp_acl
+  block:
+    # if there already is a firewall filter ACE for AAA and the clear_ntp_acl tag was specified
+    # gather the term name so the template can delete it
+    - name: Only clear existing ntp ACEs when clear_ntp_acl was specified
+      block:
+        - name: Create a regex variable to search for an ACE matching the NTP port
+          tags: ntp_acl_dry_run
+          ansible.builtin.set_fact:
+            ntp_filter_search: "{{ '(?m)set firewall family inet filter ' + filter_name + ' term ([\\w/.-]+) from [\\w.-]*port ntp' }}"
+
+        - name: Get the firewall filter term name for any ACE using 'from *port ntp'
+          tags: ntp_acl_dry_run
+          ansible.builtin.set_fact:
+            ntp_filter_search_result: "{{ config_output | regex_findall(ntp_filter_search) }}"
+
+        - name: Print the NTP ACE term name result
+          tags: ntp_acl_dry_run
+          ansible.builtin.debug:
+            msg: "NTP ACE term name: {{ ntp_filter_search_result }}"
+          when: "'debug' in ansible_run_tags"
+      when: "'clear_ntp_acl' in ansible_run_tags"
+      
+    - name: Build ntp_acl.conf file from the template
+      tags: ntp_acl_dry_run
+      ansible.builtin.template:
+        src: ntp_acl.j2
+        dest: "{{ config_build }}/12_ntp_acl.conf"
+
+#
+# Set the Syslog ACLs
+#
+
+# Configure the device with the ACL to allow Syslog through the interface's filter
+- name: Begin Syslog ACL Config
+  tags: syslog_acl
+  block:
+    # if there already is a firewall filter ACE for Syslog and the clear_syslog_acl tag was specified
+    # gather the term name so the template can delete it
+    - name: Only clear existing syslog ACEs when clear_syslog_acl was specified
+      block:
+        - name: Create a regex variable to search for an ACE matching the Syslog port
+          tags: syslog_acl_dry_run
+          ansible.builtin.set_fact:
+            syslog_filter_search: "{{ '(?m)set firewall family inet filter ' + filter_name + ' term ([\\w/.-]+) from [\\w/.-]*port syslog' }}"
+
+        - name: Get the firewall filter term name for any ACE using '*port syslog'
+          tags: syslog_acl_dry_run
+          ansible.builtin.set_fact:
+            syslog_filter_search_result: "{{ config_output | regex_findall(syslog_filter_search) }}"
+
+        - name: Print the Syslog ACE term name result
+          tags: syslog_acl_dry_run
+          ansible.builtin.debug:
+            msg: "Syslog ACE term name: {{ syslog_filter_search_result }}"
+          when: "'debug' in ansible_run_tags"
+      when: "'clear_syslog_acl' in ansible_run_tags"
+        
+    - name: Build syslog_acl.conf file from the template
+      tags: syslog_acl_dry_run
+      ansible.builtin.template:
+        src: syslog_acl.j2
+        dest: "{{ config_build }}/13_syslog_acl.conf"
+
+    #- name: Create a firewall filter delete command if the ACE for AAA was found
+    #  tags: syslog_acl_dry_run
+    #  ansible.builtin.set_fact:
+    #    syslog_ace_del_cmd: "{{ 'delete firewall family inet filter ' + filter_name + ' term ' + syslog_filter_search_result }}"
+    #  when: syslog_filter_search_result|length>0 and syslog_filter_search_result != "None"
+
+    #- name: Print the Syslog ACE config info that will be sent to the device
+    #  tags: syslog_acl_dry_run
+    #  ansible.builtin.debug:
+    #    msg: "{{ item }}"
+    #  with_items:
+    #      - "{{ syslog_ace_del_cmd | default('') }}"
+    #      - "set policy-options prefix-list {{ ace.syslog.dst_prefix_list_name }} {{ syslog.ipv4 }}/32"
+    #      - "set firewall family inet filter {{ filter_name }} term {{ ace.syslog.name }} from source-prefix-list {{ mgmt_if_prefix_list }}"
+    #      - "set firewall family inet filter {{ filter_name }} term {{ ace.syslog.name }} from destination-prefix-list {{ ace.syslog.dst_prefix_list_name }}"
+    #      - "set firewall family inet filter {{ filter_name }} term {{ ace.syslog.name }} from protocol udp"
+    #      - "set firewall family inet filter {{ filter_name }} term {{ ace.syslog.name }} from destination-port syslog"
+    #      - "set firewall family inet filter {{ filter_name }} term {{ ace.syslog.name }} then accept"
+    #  when: "'debug' in ansible_run_tags"
+#
+    #- name: Merge the Syslog ACE into the firewall (interface filter) config
+    #  junipernetworks.junos.junos_config:
+    #    lines: 
+    #      - "{{ syslog_ace_del_cmd | default('') }}"
+    #      - "set policy-options prefix-list {{ ace.syslog.dst_prefix_list_name }} {{ syslog.ipv4 }}/32"
+    #      - "set firewall family inet filter {{ filter_name }} term {{ ace.syslog.name }} from source-prefix-list {{ mgmt_if_prefix_list }}"
+    #      - "set firewall family inet filter {{ filter_name }} term {{ ace.syslog.name }} from destination-prefix-list {{ ace.syslog.dst_prefix_list_name }}"
+    #      - "set firewall family inet filter {{ filter_name }} term {{ ace.syslog.name }} from protocol udp"
+    #      - "set firewall family inet filter {{ filter_name }} term {{ ace.syslog.name }} from destination-port syslog"
+    #      - "set firewall family inet filter {{ filter_name }} term {{ ace.syslog.name }} then accept"
+    #  register: config_result
+#
+    # This next section has been replaced by the config delete and re-add block at the end
+    #
+    ## The ACE will be inserted at the end after the default deny ACE, and only 
+    ## an XML source file merge is capable of changing the ACE order
+    #- name: Set the ACE term name the template needs for this service
+    #  tags: syslog_acl_dry_run
+    #  ansible.builtin.set_fact:
+    #    acename: "{{ ace.syslog.name }}"
+#
+#    - name: generate an XML from the ACE reorder template
+#      tags: syslog_acl_dry_run
+#      template:
+#        src: aceorder.j2
+#        dest: aceorder.xml
+#        #owner: ubuntu
+#        #group: ubuntu
+#        mode: '0640'
+
+#    - name: Load XML config to move the ACE in front of any ACE's with deny actions
+#      junipernetworks.junos.junos_config:
+#        src: aceorder.xml
+#        src_format: xml
+#      register: config_result
+
+#
+# Set the AAA ACLs
+#
+
+# Configure the device with the ACL to allow AAA through the interface's filter
+- name: Begin AAA ACL Config
+  tags: aaa_acl
+  block:
+    # if there already is a firewall filter ACE for AAA or a 'apply-path' prefix list and
+    # the clear_aaa_acl tag was specified gather the term name so the template can delete it
+    - name: Only clear existing AAA ACEs and prefix-lists when clear_aaa_acl was specified
+      block:
+        - name: Create a regex variable to search for a prefix-list containing the AAA server path
+          tags: aaa_acl_dry_run
+          ansible.builtin.set_fact:
+            aaa_prefix_search: "{{ '(?m)set policy-options prefix-list [\\w/.-]+ apply-path \\\"system ' + aaa_type + '-server' }}"
+
+        - name: Get the prefix-lists used to validate the management networks
+          tags: aaa_acl_dry_run
+          ansible.builtin.set_fact:
+            aaa_prefix_list: "{{ config_output | regex_search(aaa_prefix_search) | regex_replace('.* prefix-list +([\\w/.-]+) .*', '\\1') }}"
+
+        - name: Print the AAA prefix-list search result
+          tags: aaa_acl_dry_run
+          ansible.builtin.debug:
+            msg: "prefix-list with the {{ aaa_type }} apply-path: {{ aaa_prefix_list }}"
+          when: "'debug' in ansible_run_tags"
+
+        # if there already is a firewall filter ACE for AAA create a command to delete it
+        - name: Create a regex variable to search for any mgmt interface filter ACE matching the AAA port
+          tags: aaa_acl_dry_run
+          ansible.builtin.set_fact:
+            aaa_filter_search: "{% if aaa_type == 'tacplus' -%}
+              (?m)set firewall family inet filter {{ filter_name }} term ([\\w/.-]+) from source-port tacacs
+            {% elif aaa_type == 'radius'-%}
+              (?m)set firewall family inet filter {{ filter_name }} term ([\\w/.-]+) from source-port (?:1645|1812)
+            {%- endif %}"
+
+        - name: Get the firewall filter term name for any mgmt interface filter ACE using 'source-port tacacs'
+          tags: aaa_acl_dry_run
+          ansible.builtin.set_fact:
+            aaa_filter_search_result: "{{ config_output | regex_findall(aaa_filter_search) }}"
+
+        - name: Print the AAA ACE term name result
+          tags: aaa_acl_dry_run
+          ansible.builtin.debug:
+            msg: "AAA ACE term name: {{ aaa_filter_search_result }}"
+          when: "'debug' in ansible_run_tags"
+
+      when: "'clear_aaa_acl' in ansible_run_tags"
+      
+    - name: Build aaa_acl.conf file from the template
+      tags: aaa_acl_dry_run
+      ansible.builtin.template:
+        src: aaa_acl.j2
+        dest: "{{ config_build }}/14_aaa_acl.conf"
+
+    #- name: Create a firewall filter delete command if the ACE for AAA was found
+    #  tags: aaa_acl_dry_run
+    #  ansible.builtin.set_fact:
+    #    aaa_ace_del_cmd: "{{ 'delete firewall family inet filter ' + filter_name + ' term ' + aaa_filter_search_result }}"
+    #  when: aaa_filter_search_result|length>0 and aaa_filter_search_result != "None"
+
+    #- name: Print the AAA ACE config info that will be sent to the device
+    #  tags: aaa_acl_dry_run
+    #  ansible.builtin.debug:
+    #    msg: "{{ item }}"
+    #  with_items:
+    #      - "{{ aaa_ace_del_cmd | default('') }}"
+    #      - "set policy-options prefix-list {{ ace.aaa.src_prefix_list_name }} apply-path \"system tacplus-server <*>\""
+    #      - "set firewall family inet filter {{ filter_name }} term {{ ace.aaa.name }} from source-prefix-list {{ ace.aaa.src_prefix_list_name }}"
+    #      - "set firewall family inet filter {{ filter_name }} term {{ ace.aaa.name }} from destination-prefix-list {{ mgmt_ipv4_prefix_list }}"
+    #      - "set firewall family inet filter {{ filter_name }} term {{ ace.aaa.name }} from protocol tcp"
+    #      - "set firewall family inet filter {{ filter_name }} term {{ ace.aaa.name }} from source-port tacacs"
+    #      - "set firewall family inet filter {{ filter_name }} term {{ ace.aaa.name }} from source-port tacacs-ds"
+    #      - "set firewall family inet filter {{ filter_name }} term {{ ace.aaa.name }} from tcp-established"
+    #      - "set firewall family inet filter {{ filter_name }} term {{ ace.aaa.name }} then accept"
+    #  when: "'debug' in ansible_run_tags"
+
+    #- name: Merge the AAA ACE into the firewall (interface filter) config
+    #  junipernetworks.junos.junos_config:
+    #    lines: 
+    #      #- "delete firewall family inet filter {{ filter_name }} term {{ ace.aaa.name }}"
+    #      - "{{ aaa_ace_del_cmd | default('') }}"
+    #      - "set policy-options prefix-list {{ ace.aaa.src_prefix_list_name }} apply-path \"system aaa-server <*>\""
+    #      - "set firewall family inet filter {{ filter_name }} term {{ ace.aaa.name }} from source-prefix-list {{ ace.aaa.src_prefix_list_name }}"
+    #      - "set firewall family inet filter {{ filter_name }} term {{ ace.aaa.name }} from destination-prefix-list {{ mgmt_ipv4_prefix_list }}"
+    #      - "set firewall family inet filter {{ filter_name }} term {{ ace.aaa.name }} from protocol tcp"
+    #      - "set firewall family inet filter {{ filter_name }} term {{ ace.aaa.name }} from source-port tacacs"
+    #      - "set firewall family inet filter {{ filter_name }} term {{ ace.aaa.name }} from source-port tacacs-ds"
+    #      - "set firewall family inet filter {{ filter_name }} term {{ ace.aaa.name }} from tcp-established"
+    #      - "set firewall family inet filter {{ filter_name }} term {{ ace.aaa.name }} then accept"
+    #  register: config_result
+
+    # This next section has been replaced by the config delete and re-add block at the end
+    ##
+    ## The ACE will be inserted at the end after the default deny ACE, and only 
+    ## an XML source file merge is capable of changing the ACE order
+    #- name: Set the ACE term name the template needs for this service
+    #  tags: aaa_acl_dry_run
+    #  ansible.builtin.set_fact:
+    #    acename: "{{ ace.aaa.name }}"
+
+    #- name: generate an XML from the ACE reorder template
+    #  tags: aaa_acl_dry_run
+    #  template:
+    #    src: aceorder.j2
+    #    dest: aceorder.xml
+    #    #owner: ubuntu
+    #    #group: ubuntu
+    #    mode: '0640'
+
+    #- name: Load XML config to move the ACE in front of any ACE's with deny actions
+    #  junipernetworks.junos.junos_config:
+    #    src: aceorder.xml
+    #    src_format: xml
+    #  register: config_result
+      
+
+
+#
+# Build a config that deletes the discard/reject ACE at the end of the ACL, and adds it back so it is after all the new allow ACEs
+#
+- name: Begin block to build a config that finds the last discard/reject ACE, deletes it and adds it back after all the new allow ACEs
+  tags:
+    - netconf_acl
+    - ntp_acl
+    - aaa_acl
+    - syslog_acl
+    - netconf_acl_dry_run
+    - ntp_acl_dry_run
+    - aaa_acl_dry_run
+    - syslog_acl_dry_run
+  block:
+    # First, find the name of the last ACE that drops packets
+    - name: Create a regex variable to search for an ACE matching discard or reject
+      ansible.builtin.set_fact:
+        drop_ace_name_search: "{{ '.*set firewall family inet filter ' + filter_name + ' term [\\w/.-]+ then (?:discard|reject)' }}"
+
+    - name: Get the firewall filter term name that matches the regex
+      ansible.builtin.set_fact:
+        drop_ace_name: "{{ config_output | regex_findall(drop_ace_name_search) | last | regex_replace('.* term ([\\w/.-]+) .*', '\\1') }}"
+
+    - name: Set the drop_ace_name variable to '' when regex_search returns 'None'
+      ansible.builtin.set_fact:
+        drop_ace_name: "{% if drop_ace_name == 'None' %}''{% else %}{{ drop_ace_name }}{% endif %}"
+    
+    # Then, search for all ACE lines with the name found above and add them to a list
+    - name: Continue with reordering config when there is an ACE that drops packets
+      block:
+        - name: Print the drop ACE term name result
+          ansible.builtin.debug:
+            msg: "Last drop ACE term name: {{ drop_ace_name }}"
+          when: "'debug' in ansible_run_tags"
+
+        - name: Create a regex variable to search for all ACE lines matching the drop ACE's name
+          ansible.builtin.set_fact:
+            drop_ace_lines_search: "{{ '.*firewall family inet filter ' + filter_name + ' term ' + drop_ace_name + '.*' }}"
+
+        - name: Get the config as a list
+          ansible.builtin.set_fact:
+            drop_ace_lines: "{{ config_output[0].splitlines() }}"
+          when: "'debug' in ansible_run_tags"
+
+        - name: Get the firewall filter term name that matches the regex
+          ansible.builtin.set_fact:
+            drop_ace_lines: "{{ config_output[0].splitlines() | select('match', drop_ace_lines_search) }}"
+
+        - name: Print the drop ACE lines result
+          ansible.builtin.debug:
+            msg: "All drop ACE lines: {{ drop_ace_lines }}"
+          when: "'debug' in ansible_run_tags"
+
+        - name: Build reorder_acl.conf file from the template
+          tags: netconf_acl_dry_run
+          ansible.builtin.template:
+            src: reorder_acl.j2
+            dest: "{{ config_build }}/20_reorder_acl.conf"
+      when: drop_ace_name | length > 0

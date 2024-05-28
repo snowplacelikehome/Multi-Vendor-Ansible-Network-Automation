@@ -1,0 +1,6 @@
+#jinja2: trim_blocks: "true", lstrip_blocks: "true"
+{# delete firewall family inet filter {{ filter_name }} term {{ ace.aaa.name }} #}
+set firewall family inet filter {{ filter_name }} term {{ ace.netconf.name }} from source-prefix-list {{ mgmt_ipv4_prefix_list }}
+set firewall family inet filter {{ filter_name }} term {{ ace.netconf.name }} from protocol tcp
+set firewall family inet filter {{ filter_name }} term {{ ace.netconf.name }} from destination-port 830
+set firewall family inet filter {{ filter_name }} term {{ ace.netconf.name }} then accept

@@ -2,3 +2,4 @@
 # vars file for assemble_apply
 config_assemble: "config/{{ inventory_hostname }}"
 config_build: "{{ config_assemble }}/build"
+config_all: "{{ config_assemble }}/all.conf"

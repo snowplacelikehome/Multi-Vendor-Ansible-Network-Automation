@@ -1,0 +1,12 @@
+#jinja2: trim_blocks: "true", lstrip_blocks: "true"
+{% if ntp_filter_search_result is defined %}
+    {% for ntp_term in ntp_filter_search_result %}
+        {{- 'delete firewall family inet filter ' + filter_name + ' term ' + ntp_term }}
+    {% endfor %}
+{% endif %}
+set policy-options prefix-list {{ ace.ntp.src_prefix_list_name }} apply-path "system ntp server <*>"
+set firewall family inet filter {{ filter_name }} term {{ ace.ntp.name }} from source-prefix-list {{ mgmt_if_prefix_list }}
+set firewall family inet filter {{ filter_name }} term {{ ace.ntp.name }} from destination-prefix-list {{ ace.ntp.src_prefix_list_name }}
+set firewall family inet filter {{ filter_name }} term {{ ace.ntp.name }} from protocol udp
+set firewall family inet filter {{ filter_name }} term {{ ace.ntp.name }} from port ntp
+set firewall family inet filter {{ filter_name }} term {{ ace.ntp.name }} then accept

@@ -9,3 +9,4 @@ host_vars/*
 *.pw
 *.bk
 *~
+Juniper_JunOS/host_vars/*.yml

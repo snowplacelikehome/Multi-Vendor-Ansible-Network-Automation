@@ -4,59 +4,32 @@
   tags:
     - ntp
   block:
-    # First, build commands to remove any previously configured NTP servers
-    - name: Capture show run command output for NTP cleanup
+    # First, determine whether it's necessary to remove any previously configured NTP settings
+    - name: Capture show configuration output for NTP cleanup
       tags: ntp_dry_run
-      ansible.netcommon.cli_command:
-        command: "show running-config"
-      register: config_output
+      junipernetworks.junos.junos_command:
+        commands:
+          - "show configuration"
+        display: set
+      register: config_result
+      when: config_output is not defined or config_output | length == 0
 
+    - name: Save the configuration output to a variable
+      tags: ntp_dry_run
+      ansible.builtin.set_fact:
+        config_output: "{{ config_result.stdout }}"
+      when: config_result.stdout is defined and config_result.stdout | length > 0
+    
+        # No cleanup necessary by default. Leave existing ntp servers if any are previously configured assuming adding more is fine
     - name: Build set of NTP cleanup commands
       tags: ntp_dry_run
       ansible.builtin.set_fact:
-        # the regex_findall will collect just the portion of the lines from the device's config to use in the remove command
-        # the regex_replace will match the reusable portion of the regex_findall and use the substitution to build the removal command
-        # aaa_clear_commands: "{{ config_output.stdout | regex_findall('(?m)radius-server host [\\w\\.-]+') | regex_replace('(?m)(radius-server host [\\w\\.-]+)', 'no \\1') }}"
-        ntp_clear_commands: "{{ config_output.stdout | regex_findall('(?m)^sntp server [\\w\\.-]+') | regex_replace('(?m)(sntp server [\\w\\.-]+)', 'no \\1') }}"
+        # the regex_findall will return a list of matching lines and the group causes it to return just server name or IP
+        ntp_clear_servers: "{{ config_output | regex_findall('(?m)system ntp server ([\\w\\.-]+)') | unique }}"
+      when: "'clear_ntp' in ansible_run_tags"
 
-    # Second, build commands to add the standard NTP configuration
-    - name: Build set of new NTP configuration commands
+    - name: Build ntp.conf file from the template
       tags: ntp_dry_run
-      ansible.builtin.set_fact:
-        ntp_config_commands:
-          - "sntp server {{ ntp.ipv4_1 }}"
-          - "sntp server {{ ntp.ipv4_2 }}"
-          - "clock timezone {{ ntp.tz.name }} {{ ntp.tz.diff }}"
-          - "clock summer-time web recurring usa"
-          - "clock source sntp"
-
-    - name: List all of the NTP configuration commands that would be pushed
-      tags: ntp_dry_run
-      ansible.builtin.debug:
-        msg: "{{ item }}"
-      loop: "{{ [ 'configure terminal' ] + ntp_clear_commands + ntp_config_commands + [ 'exit' ] }}"
-      when: "'debug' in ansible_run_tags"
-
-    - name: Push the NTP configuration
-      ansible.netcommon.cli_command:
-        command: "{{ item }}"
-      loop: "{{ [ 'configure terminal' ] + ntp_clear_commands + ntp_config_commands + [ 'exit' ] }}"
-      register: command_output
-      changed_when: command_output.stdout|length <= 0
-
-    - name: Show Debug command_output variable
-      ansible.builtin.debug:
-        msg: '{{ command_output }}'
-      when: "'debug' in ansible_run_tags"
-
-    - name: Check for Failutres in the Command's Output
-      ansible.builtin.fail:
-        msg: "The command ({{ item.item }}) did not have an empty response"
-      when: item.stdout|length > 0
-      loop: '{{ command_output.results }}'
-
-    - name: Save Device Configuration
-      ansible.netcommon.cli_command:
-        command: "copy running-config startup-config"
-      register: save_output
-      failed_when: "'Copy succeeded' not in save_output.stdout"
+      ansible.builtin.template:
+        src: ntp.j2
+        dest: "{{ config_build }}/01_ntp.conf"
