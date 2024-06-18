@@ -1,4 +1,5 @@
-/system clock set time-zone-name={{ ntp.tz.long_name }}
+/system clock set time-zone-name={{ ntp_tz.long_name }}
 /system ntp client servers remove [find where address!=""]
-/system ntp client servers add address={{ ntp.ipv4_1 }} comment="{{ ntp.desc }}"
-/system ntp client servers add address={{ ntp.ipv4_2 }} comment="{{ ntp.desc }}"
+{% for ntp in ntp_servers %}
+/system ntp client servers add address={{ ntp.ipv4 }} comment="{{ ntp.desc }}"
+{% endfor %}

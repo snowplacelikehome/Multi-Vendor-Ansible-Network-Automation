@@ -1,6 +1,8 @@
 backups/*
 creds/*
 host_vars/*
+**/config/*
+*.conf
 *.home.yml
 *.priv.yml
 *.backup
@@ -9,4 +11,3 @@ host_vars/*
 *.pw
 *.bk
 *~
-Juniper_JunOS/host_vars/*.yml

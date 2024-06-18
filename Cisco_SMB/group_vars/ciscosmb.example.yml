@@ -31,7 +31,9 @@ ansible_ssh_extra_args: -o KexAlgorithms=+diffie-hellman-group1-sha1 -o HostKeyA
 # individual variables
 radius_auth_port: 1645
 radius_acct_port: 1646
-radius_secret: !vault |
+tacplus_port: 49
+aaa_type: radius
+aaa_secret: !vault |
           $ANSIBLE_VAULT;1.1;AES256
           00000000000000000000000000000000000000000000000000000000000000000000000000000000
           00000000000000000000000000000000000000000000000000000000000000000000000000000000

@@ -9,55 +9,38 @@
       tags: aaa_dry_run
       ansible.netcommon.cli_command:
         command: "show running-config"
-      register: config_output
+      register: config_result
+      failed_when: config_result.stdout|length == 0
+      when: "config_output is not defined or config_output|length == 0"
 
-    - name: Build set of AAA cleanup commands
+    - name: Save the configuration output to a variable
       tags: aaa_dry_run
       ansible.builtin.set_fact:
-        # the regex_findall will collect just the portion of the lines from the device's config to use in the remove command
-        # the regex_replace will match the reusable portion of the regex_findall and use the substitution to build the removal command
-        aaa_clear_commands: "{{ config_output.stdout | regex_findall('(?m)radius-server host [\\w\\.-]+') | regex_replace('(?m)(radius-server host [\\w\\.-]+)', 'no \\1') }}"
-
-    # Second, build commands to add the standard AAA configuration
-    - name: Build set of new AAA configuration commands
+        config_output: "{{ config_result.stdout }}"
+      when: config_result.stdout is defined and config_result.stdout | length > 0
+    
+    - name: Fail if the config has RADIUS set up
       tags: aaa_dry_run
-      ansible.builtin.set_fact:
-        aaa_config_commands:
-          - "radius-server host {{ aaa.ipv4 }} auth-port {{ radius_auth_port }} acct-port {{ radius_acct_port }} key {{ radius_secret }}"
-          - "ip http authentication aaa login-authentication https radius local"
-          - "aaa authentication login SSH radius local"
-          - "aaa authentication enable SSH radius enable"
-          - "aaa authentication login default radius local"
-          - "aaa authentication enable default radius enable"
-          - "aaa accounting login start-stop group radius"
-
-    - name: List all of the AAA configuration commands that would be pushed
-      tags: aaa_dry_run
-      ansible.builtin.debug:
-        msg: "{{ item }}"
-      loop: "{{ [ 'configure terminal' ] + aaa_clear_commands + aaa_config_commands + [ 'exit' ] }}"
-      when: "'debug' in ansible_run_tags"
-
-    - name: Push the AAA configuration
-      ansible.netcommon.cli_command:
-        command: "{{ item }}"
-      loop: "{{ [ 'configure terminal' ] + aaa_clear_commands + aaa_config_commands + [ 'exit' ] }}"
-      register: command_output
-      changed_when: command_output.stdout|length <= 0
-
-    - name: Show Debug command_output variable
-      ansible.builtin.debug:
-        msg: '{{ command_output }}'
-      when: "'debug' in ansible_run_tags"
-
-    - name: Check for Failutres in the Command's Output
       ansible.builtin.fail:
-        msg: "The command ({{ item.item }}) did not have an empty response"
-      when: item.stdout|length > 0
-      loop: '{{ command_output.results }}'
+        msg: "{{ inventory_hostname }}/{{ ansible_host }} contains a pre-existing radius configuration. Remove manually before proceeding"
+      # the regex_findall result will be > 0 if it finds "system radius-server SOME_WORD" in the config
+      when: "config_output | regex_findall('(?m)radius-server host [\\w\\.-]+')|length > 0 and 'clear_radius' not in ansible_run_tags"
 
-    - name: Save Device Configuration
-      ansible.netcommon.cli_command:
-        command: "copy running-config startup-config"
-      register: save_output
-      failed_when: "'Copy succeeded' not in save_output.stdout"
+    - name: Build list of RADIUS servers from the config to clear
+      tags: aaa_dry_run
+      ansible.builtin.set_fact:
+        # the regex_findall will return a list of matching lines and the group causes it to return just server name or IP
+        radius_clear_servers: "{{ config_output | regex_findall('(?m)system radius-server ([\\w\\.-]+)') | unique }}"
+      when: "config_output | regex_findall('(?m)system radius-server [\\w\\.-]+')|length > 0 and 'clear_radius' in ansible_run_tags"
+
+    - name: Build tacplus cleanup commands if the config has TACACS+ enabled
+      tags: aaa_dry_run
+      ansible.builtin.set_fact:
+        tacplus_clear_servers: "{{ config_output | regex_findall('(?m)system tacplus-server ([\\w\\.-]+)') | unique }}"
+
+    - name: Build aaa.conf file from the template
+      tags: aaa_dry_run
+      ansible.builtin.template:
+        src: aaa.j2
+        dest: "{{ config_build }}/03_aaa.conf"
+        mode: 0640

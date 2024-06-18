@@ -5,39 +5,23 @@
     - netconf
     - netconf_acl
     - aaa
+    - aaa_acl
     - tacplus_acl
-    #- ntp
-    #- ntp_acl
-    - pw_dry
+    - ntp
+    - ntp_acl
     - syslog
     - syslog_acl
   block:
     - name: Install the config on the device
       tags:
-        - netconf_dry_run
-        - netconf_acl_dry_run
-        - aaa_dry_run
-        - tacplus_acl_dry_run
-        #- ntp_dry_run
-        #- ntp_acl_dry_run
-        - pw_dry_run
-        - syslog_dry_run
-        - syslog_acl_dry_run
+        - config_dry_run
       ansible.builtin.command: cat {{ config_all|quote }}
       register: command_output
       notify: Print the commands
 
     - name: Print the commands
       tags:
-        - netconf_dry_run
-        - netconf_acl_dry_run
-        - aaa_dry_run
-        - tacplus_acl_dry_run
-        #- ntp_dry_run
-        #- ntp_acl_dry_run
-        - pw_dry_run
-        - syslog_dry_run
-        - syslog_acl_dry_run
+        - config_dry_run
       ansible.builtin.debug:
         msg: "{{ command_output.stdout }}"
       changed_when: true

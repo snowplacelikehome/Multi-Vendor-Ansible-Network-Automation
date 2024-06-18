@@ -109,20 +109,20 @@
           tags: pw_dry_run
           ansible.netcommon.cli_command:
             command: "show running-config"
-          register: config_output
+          register: config_result
 
         - name: Print the config's existing creds
           tags: pw_dry_run
           ansible.builtin.debug:
-            msg: "Current creds: {{ config_output.stdout | regex_findall('(?m)^username .*') | to_nice_json }}"
+            msg: "Current creds: {{ config_result.stdout | regex_findall('(?m)^username .*') | to_nice_json }}"
           when: "'debug' in ansible_run_tags"
 
-        - name: Log the config_output's creds to a file
+        - name: Log the config_result's creds to a file
           tags: pw_dry_run
           ansible.builtin.copy:
             backup: true
             mode: "0640"
-            content: "{{ config_output.stdout | regex_findall('(?m)^username .*') | to_nice_json }}"
+            content: "{{ config_result.stdout | regex_findall('(?m)^username .*') | to_nice_json }}"
             dest: "{{ 'creds/' + inventory_hostname + '.creds' }}"
           changed_when: false
 
@@ -140,7 +140,7 @@
           ansible.builtin.set_fact:
             # the regex_findall will collect just the portion of the lines from the device's config to use in the remove command
             # the regex_replace will match the reusable portion of the regex_findall and use the substitution to build the removal command
-            pw_clear_commands: "{{ config_output.stdout | regex_findall('(?m)username [\\w\\.-]+') | regex_replace('(?m)(username [\\w\\.-]+)', 'no \\1') }}"
+            pw_clear_commands: "{{ config_result.stdout | regex_findall('(?m)username [\\w\\.-]+') | regex_replace('(?m)(username [\\w\\.-]+)', 'no \\1') }}"
 
         - name: Build set of new user/pass configuration commands
           tags: pw_dry_run
@@ -152,15 +152,16 @@
           tags: pw_dry_run
           ansible.builtin.debug:
             msg: "{{ item }}"
-          loop: "{{ [ 'configure terminal' ] + pw_clear_commands + pw_config_commands + [ 'exit' ] }}"
+          loop: "{{ [ 'configure terminal' ] + [ 'logging console error' ] + pw_clear_commands + pw_config_commands + [ 'logging console warning' ] + [ 'exit' ] }}"
           when: "'debug' in ansible_run_tags"
 
         - name: Push the user cleanup and new user configuration
           ansible.netcommon.cli_command:
             command: "{{ item }}"
-          loop: "{{ [ 'configure terminal' ] + pw_clear_commands + pw_config_commands + [ 'exit' ] }}"
+          loop: "{{ [ 'configure terminal' ] + [ 'logging console error' ] + pw_clear_commands + pw_config_commands + [ 'logging console warning' ] + [ 'exit' ] }}"
           register: command_output
-          changed_when: command_output.stdout|length <= 0
+          failed_when: command_output.stdout|length > 0
+          changed_when: command_output.stdout|length == 0
 
         - name: Show Debug command_output variable
           ansible.builtin.debug:

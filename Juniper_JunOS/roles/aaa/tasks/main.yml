@@ -6,7 +6,6 @@
   block:
     # First, determine whether it's necessary to remove any previously configured AAA settings
     - name: Capture show configuration output for AAA cleanup
-      tags: aaa_dry_run
       junipernetworks.junos.junos_command:
         commands:
           - "show configuration"
@@ -15,41 +14,39 @@
       when: "config_output is not defined or config_output|length == 0"
 
     - name: Save the configuration output to a variable
-      tags: aaa_dry_run
       ansible.builtin.set_fact:
         config_output: "{{ config_result.stdout }}"
       when: config_result.stdout is defined and config_result.stdout | length > 0
     
     - name: Fail if the config has RADIUS set up
-      tags: aaa_dry_run
       ansible.builtin.fail:
         msg: "{{ inventory_hostname }}/{{ ansible_host }} contains a pre-existing radius configuration. Remove manually before proceeding"
       # the regex_findall result will be > 0 if it finds "system radius-server SOME_WORD" in the config
       when: "config_output | regex_findall('(?m)system radius-server [\\w\\.-]+')|length > 0 and 'clear_radius' not in ansible_run_tags"
 
     - name: Build list of RADIUS servers from the config to clear
-      tags: aaa_dry_run
       ansible.builtin.set_fact:
         # the regex_findall will return a list of matching lines and the group causes it to return just server name or IP
         radius_clear_servers: "{{ config_output | regex_findall('(?m)system radius-server ([\\w\\.-]+)') | unique }}"
       when: "config_output | regex_findall('(?m)system radius-server [\\w\\.-]+')|length > 0 and 'clear_radius' in ansible_run_tags"
 
     - name: Build tacplus cleanup commands if the config has TACACS+ enabled
-      tags: aaa_dry_run
       ansible.builtin.set_fact:
         tacplus_clear_servers: "{{ config_output | regex_findall('(?m)system tacplus-server ([\\w\\.-]+)') | unique }}"
 
     - name: Build authentication-order cleanup commands
-      tags: aaa_dry_run
       ansible.builtin.set_fact:
         auth_order_clear: "{{ config_output | regex_findall('(?m)system authentication-order')|length > 0 }}"
 
     - name: Build aaa.conf file from the template
-      tags: aaa_dry_run
       ansible.builtin.template:
         src: aaa.j2
         dest: "{{ config_build }}/03_aaa.conf"
+        mode: 0640
 
+    ## This method of connecting to devices and pushing configs within each role is no
+    ## longer used (replaced by config aggrigation method)
+    ##
     #- name: Build tacplus cleanup commands
     #  tags: aaa_dry_run
     #  ansible.builtin.set_fact:

@@ -8,4 +8,4 @@ set system syslog host {{ syslog.ipv4 }} user info
 set system syslog host {{ syslog.ipv4 }} change-log notice
 set system syslog host {{ syslog.ipv4 }} interactive-commands info
 set system syslog host {{ syslog.ipv4 }} port {{ syslog.port }}
-set system syslog host {{ syslog.ipv4 }} source-address {{ src_ipv4 }}
+set system syslog host {{ syslog.ipv4 }} {% if src_ipv4 is defined %}source-address {{ src_ipv4 }}{% endif +%}

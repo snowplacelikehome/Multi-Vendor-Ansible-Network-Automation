@@ -6,7 +6,6 @@
   block:
     # First, determine whether it's necessary to remove any previously configured NTP settings
     - name: Capture show configuration output for NTP cleanup
-      tags: ntp_dry_run
       junipernetworks.junos.junos_command:
         commands:
           - "show configuration"
@@ -15,21 +14,19 @@
       when: config_output is not defined or config_output | length == 0
 
     - name: Save the configuration output to a variable
-      tags: ntp_dry_run
       ansible.builtin.set_fact:
         config_output: "{{ config_result.stdout }}"
       when: config_result.stdout is defined and config_result.stdout | length > 0
-    
-        # No cleanup necessary by default. Leave existing ntp servers if any are previously configured assuming adding more is fine
+
+    # No cleanup necessary by default. Leave existing ntp servers if any are previously configured assuming adding more is fine
     - name: Build set of NTP cleanup commands
-      tags: ntp_dry_run
       ansible.builtin.set_fact:
         # the regex_findall will return a list of matching lines and the group causes it to return just server name or IP
         ntp_clear_servers: "{{ config_output | regex_findall('(?m)system ntp server ([\\w\\.-]+)') | unique }}"
       when: "'clear_ntp' in ansible_run_tags"
 
     - name: Build ntp.conf file from the template
-      tags: ntp_dry_run
       ansible.builtin.template:
         src: ntp.j2
         dest: "{{ config_build }}/01_ntp.conf"
+        mode: 0640

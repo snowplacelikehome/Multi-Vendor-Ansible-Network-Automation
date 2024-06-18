@@ -7,8 +7,9 @@
     - name: Run show configuration command
       tags: backup_dry_run
       ansible.netcommon.cli_command:
-        command: "show running-config"
+        command: "show running-config detailed"
       register: command_result
+      failed_when: command_result.stdout|length == 0
 
     - name: Copy results to file
       ansible.builtin.copy:

@@ -53,6 +53,16 @@
       loop: '{{ check_output.results }}'
       when: item.stdout|bool or item.stdout|length == 0
 
+    - name: Build aaa.conf file from the template
+      tags: aaa_dry_run
+      ansible.builtin.template:
+        src: aaa.j2
+        dest: "{{ config_build }}/03_aaa.conf"
+        mode: 0640
+      
+    ## This method of connecting to devices and pushing configs within each role is no
+    ## longer used (replaced by config aggrigation method)
+    ##
     # If that didn't fail, build commands to cleanup and add the standard AAA configuration
     #- name: Build set of new AAA configuration commands
     #  tags: aaa_dry_run
@@ -94,9 +104,3 @@
     #     command: "copy running-config startup-config"
     #   register: save_output
     #   failed_when: "'Copy succeeded' not in save_output.stdout"
-
-    - name: Build aaa.conf file from the template
-      tags: aaa_dry_run
-      ansible.builtin.template:
-        src: aaa.j2
-        dest: "{{ config_build }}/aaa.conf"

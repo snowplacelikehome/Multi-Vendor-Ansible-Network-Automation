@@ -1,0 +1,4 @@
+/system logging remove [find where action={{ syslog.name }}]
+/system logging action remove [find where remote={{ syslog.ipv4 }}]
+/system logging action add name={{ syslog.name }} remote={{ syslog.ipv4 }} syslog-facility={{ syslog.facility }} target=remote
+/system logging add action={{ syslog.name }} prefix=[/system identity get name] topics=system,info

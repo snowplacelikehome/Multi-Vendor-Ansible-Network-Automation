@@ -17,10 +17,6 @@
     - ntp_acl
     - aaa_acl
     - syslog_acl
-    - ntp_acl_dry_run
-    - netconf_acl_dry_run
-    - aaa_acl_dry_run
-    - syslog_acl_dry_run
   block:
     - name: Capture show configuration output for interface filter/ACL review
       junipernetworks.junos.junos_command:
@@ -34,7 +30,7 @@
       ansible.builtin.set_fact:
         config_output: "{{ config_result.stdout }}"
       when: config_result.stdout is defined and config_result.stdout | length > 0
-    
+
     # Find the interface that has the src_ipv4 (needs hosts_vars/inventory_hostname.yml created by the src_ip role
     # Look for an interace with settings like these:
     #   set interfaces lo0 unit 0 family inet filter input RE-protect
@@ -89,7 +85,7 @@
       ansible.builtin.debug:
         msg: "filter with interface={{ src_if }}: {{ filter_name }}"
       when: "'debug' in ansible_run_tags"
-    
+
     - name: No changes needed for devices without interface filters - assuming they don't need ACL's
       block:
       # No fiter was found on the interface associated with the src_ip. Assume this device will not need ACLs
@@ -166,12 +162,14 @@
       ansible.builtin.template:
         src: prefix_list_mgmt_if_ips.j2
         dest: "{{ config_build }}/10_prefix_lists_mgmt_if_ips.conf"
+        mode: 0640
       when: not existing_mgmt_if_prefix_list and ansible_run_tags | intersect(prefix_lists.mgmt_if.used_by) | length > 0
 
     - name: Build prefix_lists_mgmt_nets.conf file from the template
       ansible.builtin.template:
         src: prefix_list_mgmt_nets.j2
         dest: "{{ config_build }}/10_prefix_list_mgmt_nets.conf"
+        mode: 0640
       when: not existing_mgmt_ipv4_prefix_list and ansible_run_tags | intersect(prefix_lists.mgmt_nets.used_by) | length > 0
 
     #
@@ -244,10 +242,10 @@
     # > - replaced by netconf_acl.j2 template
 
     - name: Build netconf_acl.conf file from the template
-      tags: netconf_acl_dry_run
       ansible.builtin.template:
         src: netconf_acl.j2
         dest: "{{ config_build }}/11_netconf_acl.conf"
+        mode: 0640
 
     # < This next section has been replaced by the config delete and re-add block at the end
     #
@@ -294,27 +292,24 @@
     - name: Only clear existing ntp ACEs when clear_ntp_acl was specified
       block:
         - name: Create a regex variable to search for an ACE matching the NTP port
-          tags: ntp_acl_dry_run
           ansible.builtin.set_fact:
             ntp_filter_search: "{{ '(?m)set firewall family inet filter ' + filter_name + ' term ([\\w/.-]+) from [\\w.-]*port ntp' }}"
 
         - name: Get the firewall filter term name for any ACE using 'from *port ntp'
-          tags: ntp_acl_dry_run
           ansible.builtin.set_fact:
             ntp_filter_search_result: "{{ config_output | regex_findall(ntp_filter_search) }}"
 
         - name: Print the NTP ACE term name result
-          tags: ntp_acl_dry_run
           ansible.builtin.debug:
             msg: "NTP ACE term name: {{ ntp_filter_search_result }}"
           when: "'debug' in ansible_run_tags"
       when: "'clear_ntp_acl' in ansible_run_tags"
-      
+
     - name: Build ntp_acl.conf file from the template
-      tags: ntp_acl_dry_run
       ansible.builtin.template:
         src: ntp_acl.j2
         dest: "{{ config_build }}/12_ntp_acl.conf"
+        mode: 0640
 
 #
 # Set the Syslog ACLs
@@ -329,27 +324,24 @@
     - name: Only clear existing syslog ACEs when clear_syslog_acl was specified
       block:
         - name: Create a regex variable to search for an ACE matching the Syslog port
-          tags: syslog_acl_dry_run
           ansible.builtin.set_fact:
             syslog_filter_search: "{{ '(?m)set firewall family inet filter ' + filter_name + ' term ([\\w/.-]+) from [\\w/.-]*port syslog' }}"
 
         - name: Get the firewall filter term name for any ACE using '*port syslog'
-          tags: syslog_acl_dry_run
           ansible.builtin.set_fact:
             syslog_filter_search_result: "{{ config_output | regex_findall(syslog_filter_search) }}"
 
         - name: Print the Syslog ACE term name result
-          tags: syslog_acl_dry_run
           ansible.builtin.debug:
             msg: "Syslog ACE term name: {{ syslog_filter_search_result }}"
           when: "'debug' in ansible_run_tags"
       when: "'clear_syslog_acl' in ansible_run_tags"
-        
+
     - name: Build syslog_acl.conf file from the template
-      tags: syslog_acl_dry_run
       ansible.builtin.template:
         src: syslog_acl.j2
         dest: "{{ config_build }}/13_syslog_acl.conf"
+        mode: 0640
 
     #- name: Create a firewall filter delete command if the ACE for AAA was found
     #  tags: syslog_acl_dry_run
@@ -420,24 +412,20 @@
     - name: Only clear existing AAA ACEs and prefix-lists when clear_aaa_acl was specified
       block:
         - name: Create a regex variable to search for a prefix-list containing the AAA server path
-          tags: aaa_acl_dry_run
           ansible.builtin.set_fact:
             aaa_prefix_search: "{{ '(?m)set policy-options prefix-list [\\w/.-]+ apply-path \\\"system ' + aaa_type + '-server' }}"
 
         - name: Get the prefix-lists used to validate the management networks
-          tags: aaa_acl_dry_run
           ansible.builtin.set_fact:
             aaa_prefix_list: "{{ config_output | regex_search(aaa_prefix_search) | regex_replace('.* prefix-list +([\\w/.-]+) .*', '\\1') }}"
 
         - name: Print the AAA prefix-list search result
-          tags: aaa_acl_dry_run
           ansible.builtin.debug:
             msg: "prefix-list with the {{ aaa_type }} apply-path: {{ aaa_prefix_list }}"
           when: "'debug' in ansible_run_tags"
 
         # if there already is a firewall filter ACE for AAA create a command to delete it
         - name: Create a regex variable to search for any mgmt interface filter ACE matching the AAA port
-          tags: aaa_acl_dry_run
           ansible.builtin.set_fact:
             aaa_filter_search: "{% if aaa_type == 'tacplus' -%}
               (?m)set firewall family inet filter {{ filter_name }} term ([\\w/.-]+) from source-port tacacs
@@ -446,23 +434,21 @@
             {%- endif %}"
 
         - name: Get the firewall filter term name for any mgmt interface filter ACE using 'source-port tacacs'
-          tags: aaa_acl_dry_run
           ansible.builtin.set_fact:
             aaa_filter_search_result: "{{ config_output | regex_findall(aaa_filter_search) }}"
 
         - name: Print the AAA ACE term name result
-          tags: aaa_acl_dry_run
           ansible.builtin.debug:
             msg: "AAA ACE term name: {{ aaa_filter_search_result }}"
           when: "'debug' in ansible_run_tags"
 
       when: "'clear_aaa_acl' in ansible_run_tags"
-      
+
     - name: Build aaa_acl.conf file from the template
-      tags: aaa_acl_dry_run
       ansible.builtin.template:
         src: aaa_acl.j2
         dest: "{{ config_build }}/14_aaa_acl.conf"
+        mode: 0640
 
     #- name: Create a firewall filter delete command if the ACE for AAA was found
     #  tags: aaa_acl_dry_run
@@ -536,10 +522,6 @@
     - ntp_acl
     - aaa_acl
     - syslog_acl
-    - netconf_acl_dry_run
-    - ntp_acl_dry_run
-    - aaa_acl_dry_run
-    - syslog_acl_dry_run
   block:
     # First, find the name of the last ACE that drops packets
     - name: Create a regex variable to search for an ACE matching discard or reject
@@ -585,4 +567,5 @@
           ansible.builtin.template:
             src: reorder_acl.j2
             dest: "{{ config_build }}/20_reorder_acl.conf"
+            mode: 0640
       when: drop_ace_name | length > 0

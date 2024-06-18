@@ -29,10 +29,36 @@ ansible_port: 22
 # These devices use outdated/weak ssh ciphers
 #ansible_ssh_extra_args: -o KexAlgorithms=+diffie-hellman-group1-sha1 -o HostKeyAlgorithms=+ssh-dss -o Ciphers=+aes128-cbc
 
+# Define interfaces typically used in JunOS as management interfaces with IPs assigned
+mgmt_interfaces:
+  - name: First iface
+    if: lo0.0
+    if_ufmt: lo0 unit 0
+  - name: Second iface
+    if: fxp0.0
+    if_ufmt: fxp0 unit 0
+  - name: Third iface
+    if: vme.0
+    if_ufmt: vme unit 0
+  - name: Fourth iface
+    if: em0.0
+    if_ufmt: em0 unit 0
+  - name: Fifth iface
+    if: me0.0
+    if_ufmt: me0 unit 0
+  - name: Sixth iface
+    if: re0:mgmt-0.0
+    if_ufmt: re0:mgmt-0 unit 0
+  - name: Seventh iface
+    if: re0:mgmt-1.0
+    if_ufmt: re0:mgmt-1 unit 0
+  - name: Eighth iface
+    if: ge-0/0/0.0
+    if_ufmt: ge-0/0/0 unit 0
+
 #
 # Firewall Filter variables
 #
-
 prefix_lists:
   mgmt_if:
     name: mgmt-interface-ips

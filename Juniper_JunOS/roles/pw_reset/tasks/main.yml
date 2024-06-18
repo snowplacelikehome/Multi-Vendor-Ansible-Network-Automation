@@ -54,7 +54,7 @@
             # First, check if a host_vars file already exists
             - name: Check if a host_vars file already exists
               tags: pw_dry_run
-              stat:
+              ansible.builtin.stat:
                 path: "host_vars/{{ inventory_hostname }}.yml"
               register: host_vars_check_result
 
@@ -87,7 +87,7 @@
               tags: pw_dry_run
               block:
                 - name: Add host_vars/inventory_hostname file with ansible_user and ansible-vault encrypted ansible_password variables
-                  template:
+                  ansible.builtin.template:
                     src: host_vars.j2
                     dest: "host_vars/{{ inventory_hostname }}.yml"
                     mode: '0640'
@@ -152,7 +152,7 @@
         # Connect to the devices, remove all users except the pw.user and remote-* user templates and reset pw.user's
         # password to tne new creds
         #
-        
+
         # junos_user aggregate is expecting use names in this format:
         #   - name: admin
         #   - name: remote-admin

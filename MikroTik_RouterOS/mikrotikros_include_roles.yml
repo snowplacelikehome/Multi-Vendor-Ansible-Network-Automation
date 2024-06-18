@@ -1,0 +1,38 @@
+---
+- name: Run MikroTik RouterOS roles
+  hosts: mikrotikros
+  gather_facts: false
+  tasks:
+    - name: Import assemble_apply role
+      import_role:
+        name: assemble_apply
+    - name: Import backup role
+      import_role:
+        name: backup
+    - name: Import NTP role
+      import_role:
+        name: ntp
+    - name: Import Syslog role
+      import_role:
+        name: syslog
+    - name: Import AAA role
+      import_role:
+        name: aaa
+    - name: Import pw_reset role
+      import_role:
+        name: pw_reset
+    - name: Assemble all the configs and install them
+      tags:
+        - aaa
+        - aaa_dry_run
+        - ntp
+        - ntp_dry_run
+        - pw_reset
+        - pw_dry_run
+        - syslog
+        - syslog_dry_run
+      ansible.builtin.assemble:
+        src: "{{ config_build }}"
+        dest:  "{{ config_assemble }}/all.conf"
+        mode: 0640
+      #notify: Install the config on the device

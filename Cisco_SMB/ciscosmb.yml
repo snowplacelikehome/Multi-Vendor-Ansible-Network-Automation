@@ -2,16 +2,56 @@
 - name: Run ciscosmb roles
   hosts: ciscosmb
   gather_facts: false
+  roles:
+    - assemble_apply
+    - backup
+    - src_ip
+    - ntp
+    - syslog
+    - aaa
+    - pw_reset
   tasks:
-      - import_role:
-          name: backup
-      - import_role:
-          name: src_ip
-      - import_role:
-          name: ntp
-      - import_role:
-          name: syslog
-      - import_role:
-          name: aaa
-      - import_role:
-          name: pw_reset
+    - name: Assemble all the configs and install them
+      tags:
+        - ntp
+        - ntp_dry_run
+        - aaa
+        - aaa_dry_run
+        - syslog
+        - syslog_dry_run
+        - pw_reset
+        - pw_dry_run
+      block:
+        - name: Assemble the configs and check whether the commit handler should be run
+          ansible.builtin.assemble:
+            src: "{{ config_build }}"
+            dest:  "{{ config_all }}"
+            mode: 0640
+
+        - name: Get stats on the assembled config
+          ansible.builtin.stat:
+            path: "{{ config_all }}"
+          register: conf
+
+        - name: Insert the 'configure terminal' command and notify the handler to push the config to the device
+          block:
+            - name: Insert the 'configure terminal' and 'logging console error' commands at the beginning of the assembled config commands
+              ansible.builtin.lineinfile:
+                path:  "{{ config_all }}"
+                insertbefore: "BOF"
+                line: "configure terminal\nlogging console error"
+                create: false
+
+            - name: Insert the 'logging console info' command at the end of the assembled config commands
+              ansible.builtin.lineinfile:
+                path:  "{{ config_all }}"
+                insertafter: "EOF"
+                line: "logging console warning\nexit"
+                create: false
+
+            - name: Run the handler if the assembled config exists and isn't empty
+              ansible.builtin.debug:
+                msg: The assembled config is ready, running the handler to push it to the device
+              changed_when: true
+              notify: Install the config on the device
+          when: conf.stat.size is defined and conf.stat.size > 0

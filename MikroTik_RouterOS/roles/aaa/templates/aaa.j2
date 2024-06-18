@@ -1,3 +1,5 @@
 /radius remove [find where service=login]
-/radius add address={{ aaa.ipv4 }} authentication-port={{ radius_auth_port }} accounting-port={{ radius_acct_port }} comment="{{ aaa.desc }}" service=login src-address={{ aaa_source_ip }} secret="{{ radius_secret }}"
+{% for aaa_serv in aaa_servers %}
+/radius add address={{ aaa_serv.ipv4 }} authentication-port={{ radius_auth_port }} accounting-port={{ radius_acct_port }} comment="{{ aaa_serv.server_name }}" service=login src-address={{ aaa_source_ip }} secret="{{ aaa_secret }}"
 /user aaa set use-radius=yes
+{% endfor %}

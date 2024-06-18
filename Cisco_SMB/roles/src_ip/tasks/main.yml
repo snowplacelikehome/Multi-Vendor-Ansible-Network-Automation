@@ -56,7 +56,8 @@
     - name: Capture 'show logging' command output
       ansible.netcommon.cli_command:
         command: "show logging"
-      register: command_output
+      register: command_result
+      failed_when: command_result.stdout|length == 0
 
     # Look for a line like this:
     #   09-Sep-2014 01:47:28 :%AAA-I-CONNECT: User CLI session for user jkm over ssh , source 10.10.1.61 destination  10.10.1.2 ACCEPTED
@@ -65,27 +66,27 @@
         source_search_str: ".*source\\s+{{ search_ip }}\\s+destination\\s+([0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3})"
 
     - name: Create a list of matching connection log items
-      set_fact:
-        source_list: "{{ command_output.stdout_lines | select('match',source_search_str) | list }}"
+      ansible.builtin.set_fact:
+        source_list: "{{ command_result.stdout_lines | select('match',source_search_str) | list }}"
 
     - name: Show the first matching connection log item in the list
-      debug:
+      ansible.builtin.debug:
         msg: "First Matching Log Item = {{ source_list[0] }}" # use the first in the list
         #msg: "{{ source_list[-1] }}" # use the last in the list
 
     - name: Get a variable for the destination IP from the selected log list
-      set_fact:
+      ansible.builtin.set_fact:
         source_ip: "{{ source_list[0] | regex_replace('.*destination\\s+([0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}).*', '\\1') }}"
 
     - name: Show the destination IP from the selected log item
-      debug:
+      ansible.builtin.debug:
         msg: "Source IP = {{ source_ip }}" 
 
     #
     # Now, create a host_vars file for this ansible_host with the src_ip variable
     # First, check if a host_vars file already exists
     - name: Check if a host_vars file already exists
-      stat:
+      ansible.builtin.stat:
         path: "host_vars/{{ inventory_hostname }}.yml"
       register: host_vars_check_result
 
@@ -97,7 +98,7 @@
             vault_encrypt_pass: "#ansible_password: "
 
         - name: Add host_vars/inventory_hostname file with ansible_user and encrypted ansible_password variables
-          template:
+          ansible.builtin.template:
             src: host_vars.j2
             dest: "host_vars/{{ inventory_hostname }}.yml"
             mode: '0640'

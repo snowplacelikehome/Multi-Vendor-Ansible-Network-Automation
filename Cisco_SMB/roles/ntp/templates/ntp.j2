@@ -1,0 +1,9 @@
+{% for clear_srv in ntp_clear_servers %}
+no sntp server {{ clear_srv }}
+{% endfor %}
+{% for ntp in ntp_servers %}
+sntp server {{ ntp.ipv4 }}
+{% endfor %}
+clock timezone {{ ntp_tz.name }} {{ ntp_tz.diff }}
+clock summer-time web recurring usa
+clock source sntp
