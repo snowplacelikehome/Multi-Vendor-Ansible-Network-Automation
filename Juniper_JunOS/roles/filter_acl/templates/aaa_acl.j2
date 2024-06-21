@@ -18,8 +18,11 @@ set firewall family inet filter {{ filter_name }} term {{ ace.aaa.name }} from t
 set firewall family inet filter {{ filter_name }} term {{ ace.aaa.name }} then accept
 {% elif aaa_type == "radius" %}
 set firewall family inet filter {{ filter_name }} term {{ ace.aaa.name }} from source-prefix-list {{ ace.aaa.src_prefix_list_name }}
+set firewall family inet filter {{ filter_name }} term {{ ace.aaa.name }} from destination-prefix-list {{ mgmt_if_prefix_list }}
+set firewall family inet filter {{ filter_name }} term {{ ace.aaa.name }} from source-prefix-list {{ mgmt_if_prefix_list }}
+set firewall family inet filter {{ filter_name }} term {{ ace.aaa.name }} from destination-prefix-list {{ ace.aaa.src_prefix_list_name }}
 set firewall family inet filter {{ filter_name }} term {{ ace.aaa.name }} from protocol udp
-set firewall family inet filter {{ filter_name }} term {{ ace.aaa.name }} from source-port {{ radius_auth_port }}
-set firewall family inet filter {{ filter_name }} term {{ ace.aaa.name }} from source-port {{ radius_acct_port }}
+set firewall family inet filter {{ filter_name }} term {{ ace.aaa.name }} from port {{ radius_auth_port }}
+set firewall family inet filter {{ filter_name }} term {{ ace.aaa.name }} from port {{ radius_acct_port }}
 set firewall family inet filter {{ filter_name }} term {{ ace.aaa.name }} then accept
 {% endif %}

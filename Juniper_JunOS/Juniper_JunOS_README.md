@@ -37,3 +37,5 @@ ansible-playbook junos.yml --ask-vault-pass --tags netconf_acl,syslog,clear_sysl
 # Then recreate that account, reset it and the root account password and then remove all other local user accounts
 ansible-playbook junos.yml --ask-vault-pass --tags pw_reset
 ```  
+> TAGS:  
+> - make_host_vars - create host_vars/DEVICE1.yml with the new encrypted password, so the same ansible_user can be use to reconnect with the next ansible-playbook run, without this, ansible_user will have 

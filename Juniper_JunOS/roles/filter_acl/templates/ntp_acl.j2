@@ -7,6 +7,8 @@
 set policy-options prefix-list {{ ace.ntp.src_prefix_list_name }} apply-path "system ntp server <*>"
 set firewall family inet filter {{ filter_name }} term {{ ace.ntp.name }} from source-prefix-list {{ mgmt_if_prefix_list }}
 set firewall family inet filter {{ filter_name }} term {{ ace.ntp.name }} from destination-prefix-list {{ ace.ntp.src_prefix_list_name }}
+set firewall family inet filter {{ filter_name }} term {{ ace.ntp.name }} from source-prefix-list {{ ace.ntp.src_prefix_list_name }}
+set firewall family inet filter {{ filter_name }} term {{ ace.ntp.name }} from destination-prefix-list {{ mgmt_if_prefix_list }}
 set firewall family inet filter {{ filter_name }} term {{ ace.ntp.name }} from protocol udp
 set firewall family inet filter {{ filter_name }} term {{ ace.ntp.name }} from port ntp
 set firewall family inet filter {{ filter_name }} term {{ ace.ntp.name }} then accept
