@@ -34,7 +34,9 @@ ansible-playbook junos.yml --ask-vault-pass --tags netconf_acl,syslog,clear_sysl
 
 ```sh
 # Generate a new random password for each device's [group_vars: pw.user] account, encrypt and save it in the pw/ directory.
-# Then recreate that account, reset it and the root account password and then remove all other local user accounts
+# It optionally creates an entry in host_vars/DEVICE1.yml, allowing the next playbook run to use that user/pass. 
+# It also resets and removes all local user accounts except for the pw.user and aaa.user_templates accounts
+# and finishes with recreating the pw.user account as a super-user and resets its and roots passwords 
 ansible-playbook junos.yml --ask-vault-pass --tags pw_reset
 ```  
 > TAGS:  

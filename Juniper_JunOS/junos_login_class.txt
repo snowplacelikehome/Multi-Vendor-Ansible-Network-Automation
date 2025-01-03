@@ -1,0 +1,42 @@
+admin> show configuration system login | display set                 
+
+set system login class read-all permissions view
+set system login class read-all permissions view-configuration
+set system login user remote-admin full-name "User template for remote super-users"
+set system login user remote-admin uid 2010
+set system login user remote-admin class super-user
+set system login user remote-operator full-name "User template for remote operator users"
+set system login user remote-operator uid 2011
+set system login user remote-operator class operator
+set system login user remote-read-all full-name "User template for remote read-all users"
+set system login user remote-read-all uid 2013
+set system login user remote-read-all class read-all
+set system login user remote-read-only full-name "User template for remote read-only users"
+set system login user remote-read-only uid 2012
+set system login user remote-read-only class read-only
+
+admin> show configuration system login                  
+class read-all {
+    permissions [ view view-configuration ];
+}
+user remote-admin {
+    full-name "User template for remote super-users";
+    uid 2010;
+    class super-user;
+}
+user remote-operator {
+    full-name "User template for remote operator users";
+    uid 2011;
+    class operator;
+}
+user remote-read-all {
+    full-name "User template for remote read-all users";
+    uid 2013;
+    class read-all;
+}
+user remote-read-only {                 
+    full-name "User template for remote read-only users";
+    uid 2012;
+    class read-only;
+}
+
