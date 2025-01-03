@@ -1,13 +1,13 @@
 #!/usr/bin/bash
 
 usage () {
-        echo "Usage: $(basename $0) example|home" 2>&1
+        echo "Usage: $(basename $0) example|priv" 2>&1
         exit 1
 }
 
 # if less than 1 option and its argument are found, exit the script with usage
 if [ ${#} -ne 1 ]; then
-	echo 'ERROR: one argument is required. Valid argeuments are "example" or "home"'
+	echo 'ERROR: one argument is required. Valid argeuments are "example" or "priv"'
 	usage
 fi
 
