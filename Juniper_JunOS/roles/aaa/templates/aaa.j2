@@ -1,4 +1,10 @@
 #jinja2: trim_blocks: "true", lstrip_blocks: "true"
+{% for class in aaa_user_classes %}
+set system login class {{ class.name }}
+   {% for perm in class.perms %}
+set system login class {{ class }} permissions {{ perm }}
+   {% endfor %}
+{% endfor %}
 {% for user in aaa_user_templates %}
 set system login user {{ user.name }} full-name "{{ user.desc }}" uid {{ user.uid }} class {{ user.class }}
 {% endfor %}

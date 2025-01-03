@@ -122,6 +122,10 @@ aaa_secret: !vault |
 #          00000000000000000000000000000000000000000000000000000000000000000000000000000000
 #          0000
 
+aaa_user_classes:
+  - name: read-all
+    perms: [ view view-configuration ]
+    desc: "User class that can view states and read the full configuration except for encrypted hashes"
 aaa_user_templates:
   - name: remote-admin
     desc: "User template for remote super-users"
@@ -135,6 +139,10 @@ aaa_user_templates:
     desc: "User template for remote read-only users"
     uid: 2012
     class: read-only
+  - name: remote-read-all
+    desc: "User template for remote read-all users"
+    uid: 2013
+    class: read-all
 
 pw:
   reset: true
