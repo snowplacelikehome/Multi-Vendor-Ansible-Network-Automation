@@ -1,0 +1,44 @@
+#jinja2: trim_blocks: "true", lstrip_blocks: "true"
+#
+# Create the default bridge if in case it wasn't already created in the MikroTik default configuration
+# Start with vlan-filtering disabled to avoid losing access
+{% if bridge0.name is defined and bridge0.name | length > 0 %}
+:do { /interface bridge add comment={{ bridge0.comment }} name={{ bridge0.name }} } on-error {}
+/interface bridge set {{ bridge0.name }} vlan-filtering=no
+{% endif %}
+#
+# Create the interface lists and add the default bridge for later firewall filtering rules
+{% for if_list in if_lists %}
+:do { /interface list add name={{ if_list }} } on-error {}
+{% endfor %}
+:do { /interface list member remove [find interface={{ bridge0.name }}] } on-error {}
+/interface list member add comment={{ bridge0.comment }} interface={{ bridge0.name }} list={{ bridge0.if_list }}
+#
+# Configure standard VLANS for this network
+{% for vlan_conf in vlan_configs %}
+:do { /interface bridge vlan remove [find bridge={{ bridge0.name }} and vlan-ids={{ vlan_conf.vlan_id }}] } on-error {}
+/interface bridge vlan add bridge={{ bridge0.name }} vlan-ids={{ vlan_conf.vlan_id }} comment={{ vlan_conf.name }}
+{% endfor %}
+#
+# Configure ports
+{% for port_conf in port_configs %}
+/interface ethernet set [find where name={{ port_conf.name }}] comment="{{ port_conf.description }}"
+    {% if port_conf.bridge is defined and port_conf.bridge | length > 0 and port_conf.bridge != "NONE" %}
+:do { /interface bridge port add interface={{ port_conf.name }} bridge={{ bridge0.name }} } on-error {}
+/interface bridge port set [find interface={{ port_conf.name }}] comment={{ bridge0.comment }} edge={% if port_conf.edge %}yes{% else %}no{% endif %} pvid={{ port_conf.pvid }}
+    {% else %}
+:do { /interface bridge port remove [find interface={{ port_conf.name }}] } on-error {}
+        {% if port_conf.if_list is defined and port_conf.if_list | length > 0 and port_conf.if_list != "NONE" %}
+:do { /interface list member remove [find interface={{ port_conf.name }}] } on-error {}
+/interface list member add interface={{ port_conf.name }} list={{ port_conf.if_list }}
+        {% endif %}
+    {% endif %}
+{% endfor %}
+#
+# Add VLAN tagged memberships
+{% for vlan_port in vlan_ports %}
+/interface bridge vlan set [find bridge={{ bridge0.name }} and vlan-ids={{ vlan_port.vlan_id }}] tagged={{ vlan_port.tagged_ports|join(',') }}
+{% endfor %}
+#
+# Lastly, enable VLAN filtering on the default bridge
+/interface bridge set {{ bridge0.name }} vlan-filtering=yes

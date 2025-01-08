@@ -8,16 +8,15 @@
     - ntp
     - syslog
     - aaa
+    - ports_config
     - pw_reset
   tasks:
     - name: Assemble all the configs and install them
       tags:
         - ntp
-        - ntp_dry_run
         - aaa
-        - aaa_dry_run
         - syslog
-        - syslog_dry_run
+        - ports_config
         - pw_reset
         - pw_dry_run
       block:

@@ -1,0 +1,30 @@
+# built from the ports.csv file using:
+#   ./bin/csv2yaml.pl -s 1 -n if_configs ~/Downloads/ports.csv 
+vlan_configs:
+  - name: Inside
+    vlan_id: 3
+    tagged_ports: ['ether2', 'ether3']
+  - name: IoT
+    vlan_id: 8
+  - name: DMZ
+    vlan_id: 9
+
+if_configs:
+  - name: ether1
+    Description: WAN - Outside
+    Bridge: WAN
+    Mode: Access
+    Edge: True
+    PVID: 1
+  - name: ether2
+    Description: VMWareHost1 Trunk
+    Bridge: LAN
+    Mode: Trunk
+    Edge: True
+    PVID: 1
+  - name: ether3
+    Description: 
+    Bridge: LAN
+    Mode: 
+    Edge: 
+    PVID: 1

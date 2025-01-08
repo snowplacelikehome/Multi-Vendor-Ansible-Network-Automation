@@ -31,6 +31,12 @@ ansible_password: !vault |
 
 ansible_connection: ansible.netcommon.network_cli
 ansible_network_os: community.network.routeros
+# Changing to paramik resolves an issue with netcommon.net_get. Since libssh became
+# the default, ansible.netcommon.net_get times out after connecting and attempting
+# to start the file transfer
+# Test with:
+# ANSIBLE_LOG_PATH=/tmp/ansible.log ansible-playbook mikrotikros.yml -vvvv --ask-vault-pass --tags backup --limit mikrotik1
+ansible_network_cli_ssh_type: paramiko
 
 # Dictionary variables don't work well when both group_vars and host_vars exist because the
 # entire radius dict and all it's elements whould have to be set in either place. Use

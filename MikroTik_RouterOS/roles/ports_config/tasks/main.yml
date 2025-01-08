@@ -1,0 +1,11 @@
+---
+# tasks file for ports_config
+- name: Configure the standard Port Configuration settings
+  tags:
+    - ports_config
+  block:
+    - name: Build ports_config.conf file from the template
+      ansible.builtin.template:
+        src: ports_config.j2
+        dest: "{{ config_build }}/04_ports_config.conf"
+        mode: 0640
