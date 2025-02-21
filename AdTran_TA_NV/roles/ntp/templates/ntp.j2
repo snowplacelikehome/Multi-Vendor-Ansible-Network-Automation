@@ -1,0 +1,10 @@
+{# Skip this ntp_clear_servers loop and just overwrite the existing ntp server with the one defined 
+{% for clear_srv in ntp_clear_servers %}
+no sntp server {{ clear_srv }}
+{% endfor %}
+#}
+{# AdTran only support setting on sntp source #}
+{% if ntp_servers[0].ipv4 is defined and ntp_servers[0].ipv4 != None %}
+sntp server {{ ntp_servers[0].ipv4 }}
+{% endif %}
+clock timezone {{ ntp_tz.diff }}-{{ ntp_tz.zone_fmt2 }}

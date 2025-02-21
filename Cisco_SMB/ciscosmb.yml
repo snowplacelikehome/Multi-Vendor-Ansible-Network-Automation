@@ -35,19 +35,21 @@
 
         - name: Insert the 'configure terminal' command and notify the handler to push the config to the device
           block:
-            - name: Insert the 'configure terminal' and 'logging console error' commands at the beginning of the assembled config commands
-              ansible.builtin.lineinfile:
-                path:  "{{ config_all }}"
-                insertbefore: "BOF"
-                line: "configure terminal\nlogging console error"
-                create: false
+            # These two tasks are needed when the cli_conf module doesn't
+            # include code for for the edit_config function
+            #- name: Insert the 'configure terminal' and 'logging console error' commands at the beginning of the assembled config commands
+            #  ansible.builtin.lineinfile:
+            #    path:  "{{ config_all }}"
+            #    insertbefore: "BOF"
+            #    line: "configure terminal\nlogging console error"
+            #    create: false
 
-            - name: Insert the 'logging console info' command at the end of the assembled config commands
-              ansible.builtin.lineinfile:
-                path:  "{{ config_all }}"
-                insertafter: "EOF"
-                line: "logging console warning\nexit"
-                create: false
+            #- name: Insert the 'logging console info' command at the end of the assembled config commands
+            #  ansible.builtin.lineinfile:
+            #    path:  "{{ config_all }}"
+            #    insertafter: "EOF"
+            #    line: "logging console warning\nend"
+            #    create: false
 
             - name: Run the handler if the assembled config exists and isn't empty
               ansible.builtin.debug:

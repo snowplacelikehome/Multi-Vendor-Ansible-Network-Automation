@@ -22,6 +22,11 @@
 
 ## Install required ansible and python packages
 ```sh
+sudo apt update
+# User latest version of Ansible if needed
+# https://docs.ansible.com/ansible/latest/installation_guide/installation_distros.html
+sudo add-apt-repository --yes --update ppa:ansible/ansible
+wget https://github.com/ansible-semaphore/semaphore/releases/download/v2.9.45/semaphore_2.9.45_linux_amd64.deb
 sudo apt install ansible ansible-lint
 # needed for ansible cliconf
 sudo apt install python3-paramiko

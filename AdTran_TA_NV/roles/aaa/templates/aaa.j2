@@ -1,0 +1,21 @@
+#jinja2: trim_blocks: "true", lstrip_blocks: "true"
+{% for aaa_srv in aaa_servers %}
+    {% if aaa_type == 'radius' %}
+radius-server host {{ aaa_srv.ipv4 }} auth-port {{ radius_auth_port }} acct-port {{ radius_acct_port }} priority {{ aaa_srv.priority }} key "{{ aaa_secret }}"
+    {% elif aaa_type == 'tacplus' %}
+tacacs-server host {{ aaa_srv.ipv4 }} port-number {{ tacplus_port }} priority {{ aaa_srv.priority }} key "{{ aaa_secret }}"
+    {% endif %}
+{% endfor %}
+{% if aaa_type == 'radius' %}
+ip http authentication aaa login-authentication https radius local
+aaa authentication login SSH radius local
+aaa authentication enable SSH radius enable
+aaa authentication login default radius local
+aaa authentication enable default radius enable
+{% elif aaa_type == 'tacplus' %}
+ip http authentication aaa login-authentication https tacacs local
+aaa authentication login SSH tacacs local
+aaa authentication enable SSH tacacs enable
+aaa authentication login default tacacs local
+aaa authentication enable default tacacs enable
+{% endif %}

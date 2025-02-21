@@ -1,0 +1,62 @@
+---
+- name: Run adtranTANV roles
+  hosts: adtranTANV
+  gather_facts: false
+  roles:
+    - assemble_apply
+    - backup
+    - ntp
+    - syslog
+    - aaa
+    - pw_reset
+  tasks:
+    - name: Assemble all the configs and install them
+      tags:
+        - ntp
+        - aaa
+        - syslog
+        - pw_reset
+        - pw_dry_run
+      block:
+        - name: Assemble the configs and check whether the commit handler should be run
+          ansible.builtin.assemble:
+            src: "{{ config_build }}"
+            dest:  "{{ config_all }}"
+            mode: 0640
+
+        - name: Get stats on the assembled config
+          ansible.builtin.stat:
+            path: "{{ config_all }}"
+          register: conf
+
+        #- name: Insert the 'configure terminal' command and notify the handler to push the config to the device
+        - name: Notify the handler to push the config to the device
+          block:
+            #- name: Insert the bogus config command for testing
+            #  ansible.builtin.lineinfile:
+            #    path:  "{{ config_all }}"
+            #    insertbefore: "BOF"
+            #    line: "asdfqwer"
+            #    create: false
+            #
+            #- Do this in the handler role instead
+            #- name: Insert the 'reload' and 'configure terminal' commands at the beginning of the assembled config commands
+            #  ansible.builtin.lineinfile:
+            #    path:  "{{ config_all }}"
+            #    insertbefore: "BOF"
+            #    line: "reload in 2\ny\ny\nconfigure terminal" #after the reload command, this will respond "y" to 2 questions
+            #    create: false
+
+            #- name: Insert the 'end' , and 'reload cancel' commands at the end of the assembled config commands
+            #  ansible.builtin.lineinfile:
+            #    path:  "{{ config_all }}"
+            #    insertafter: "EOF"
+            #    line: "asdf\nend\nreload cancel"
+            #    create: false
+
+            - name: Run the handler if the assembled config exists and isn't empty
+              ansible.builtin.debug:
+                msg: The assembled config is ready, running the handler to push it to the device
+              changed_when: true
+              notify: Install the config on the device
+          when: conf.stat.size is defined and conf.stat.size > 0

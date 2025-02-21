@@ -1,0 +1,64 @@
+---
+# handlers file for assemble_apply
+- name: Handler to install the config on the device
+  tags:
+    - aaa
+    - ntp
+    - pw_reset
+    - syslog
+  block: 
+    - name: Install the config on the device
+      tags:
+        - aaa_dry_run
+        - ntp_dry_run
+        - pw_dry_run
+        - syslog_dry_run
+      ansible.builtin.command: cat {{ config_all|quote }}
+      register: commands
+      notify: Print the commands
+
+    - name: Print the commands
+      tags:
+        - aaa_dry_run
+        - ntp_dry_run
+        - pw_dry_run
+        - syslog_dry_run
+      ansible.builtin.debug:
+        msg: "{{ commands.stdout }}"
+      changed_when: true
+      notify: Push the Full Configuration
+
+    # These commands will always result in changed:false, so have to force it and let the next
+    # play evaluate responses and force a fail to stop the "Save Device Configuration" from happening
+    - name: Send the commands to the device
+      listen: Push the Full Configuration
+      ansible.netcommon.cli_command:
+        command: "{{ item }}"
+      loop: "{{ commands.stdout_lines }}"
+      register: cli_output
+      changed_when: cli_output.stdout|length == 0
+      failed_when: cli_output.stdout|length > 0
+      when: "ansible_run_tags | select('match','.*dry_run') | list | length == 0"
+    #  notify: Show Debug cli_output variable
+      notify: Save Device Configuration
+
+    # Fail and prevent the next handler from saving the config if any of the previous commands failed
+    #- name: Fail if any command had a non empty response
+    #  listen: Push the Full Configuration
+    #  ansible.builtin.fail:
+    #    msg: "The command ({{ item.item }}) did not have an empty response which is considered a failure. ACTION REQUIRED: some commands may have succeeded before the failure. The {{ inventory_hostname }}'s startup config has not been modified but the running config may need manual cleanup"
+    #  when: item.stdout|length > 0
+    #  loop: '{{ cli_output.results }}'
+
+    - name: Save Device Configuration
+      ansible.netcommon.cli_command:
+        command: "copy running-config startup-config"
+      register: save_output
+      failed_when: "'Copy succeeded' not in save_output.stdout"
+      changed_when: "'Copy succeeded' in save_output.stdout"
+
+    #- name: Show Debug cli_output variable
+    #  ansible.builtin.debug:
+    #    msg: '{{ cli_output }}'
+    #  when: "'debug' in ansible_run_tags"
+    #  notify: Check for failures in the Command's Output

@@ -1,0 +1,13 @@
+{# Siklu only support one ntp instance and that instance cannot be #}
+{# cleared, it it just overwritten #}
+{#   {% for clear_srv in ntp_clear_servers %} #}
+{#   no sntp server {{ clear_srv }} #}
+{#   {% endfor %} #}
+{#   {% for ntp in ntp_servers %} #}
+{% if ntp_servers[0].ipv4 is defined and ntp_servers[0].ipv4 != None %}
+set ntp 1 server {{ ntp_servers[0].ipv4 }}
+{% if ntp_servers[1].ipv4 is defined and ntp_servers[1].ipv4 != None %}
+set ntp 1 secondary-server {{ ntp_servers[1].ipv4 }}
+{% endif %}
+set ntp 1 tmz {{ ntp_tz.long_name }}
+{% endif %}

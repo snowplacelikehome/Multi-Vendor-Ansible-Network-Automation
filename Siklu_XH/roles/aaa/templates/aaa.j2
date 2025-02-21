@@ -1,0 +1,20 @@
+#jinja2: trim_blocks: "true", lstrip_blocks: "true"
+{% if aaa_clear_servers is defined and aaa_clear_servers != None %}
+{# It's possible to clear each aaa-server by it's index number, but simpler to clear "all" #}
+{#    {% for idx in aaa_clear_servers %} #}
+{# clear aaa-server {{ idx }} #}
+{#    {% endfor %} #}
+clear aaa-server all
+{% endif %}
+{% for aaa_srv in aaa_servers %}
+    {% if aaa_type == 'radius' %}
+set aaa-server {{ aaa_srv.idx }} ip-addr {{ aaa_srv.ipv4 }} port {{ radius_auth_port }} accounting-port {{ radius_acct_port }}
+    {% elif aaa_type == 'tacplus' %}
+set aaa-server {{ aaa_srv.idx }} ip-addr {{ aaa_srv.ipv4 }} port {{ tacplus_port }}
+    {% endif %}
+{% endfor %}
+{% if aaa_type == 'radius' %}
+set aaa mode radius shared-secret "{{ aaa_secret }}" connection-timeout {{ aaa_timeout }}
+{% elif aaa_type == 'tacplus' %}
+set aaa mode tacacs+ shared-secret "{{ aaa_secret }}" connection-timeout {{ aaa_timeout }}
+{% endif %}
