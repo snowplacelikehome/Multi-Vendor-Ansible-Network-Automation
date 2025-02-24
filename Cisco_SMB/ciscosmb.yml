@@ -14,13 +14,8 @@
     - name: Assemble all the configs and install them
       tags:
         - ntp
-        - ntp_dry_run
         - aaa
-        - aaa_dry_run
         - syslog
-        - syslog_dry_run
-        - pw_reset
-        - pw_dry_run
       block:
         - name: Assemble the configs and check whether the commit handler should be run
           ansible.builtin.assemble:

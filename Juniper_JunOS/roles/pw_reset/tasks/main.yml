@@ -24,7 +24,7 @@
         - name: Create saved, idempotent, random password for each host
           tags: pw_dry_run
           ansible.builtin.set_fact:
-            new_pass: "{{ lookup('ansible.builtin.password', 'pw/' + inventory_hostname + '.pw', length=16) }}"
+            new_pass: "{{ lookup('ansible.builtin.password', 'pw/' + inventory_hostname + '.pw', length=16, chars=['ascii_letters', 'digits']) }}"
 
         #
         # Add new credentials to a host_vars/[invnetory_hostname].yml file

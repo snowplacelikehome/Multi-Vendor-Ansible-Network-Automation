@@ -6,6 +6,7 @@
   block:
     - name: run the user cleanup and new user tasks for devices with the true creds.reset variable
       block:
+        #
         # First, create in idempotent/saved, random password and save existing credentials
         - name: Check if a password file already exists
           tags: pw_dry_run
@@ -24,7 +25,7 @@
         - name: Create saved, idempotent, random password for each host
           tags: pw_dry_run
           ansible.builtin.set_fact:
-            new_pass: "{{ lookup('ansible.builtin.password', 'pw/' + inventory_hostname + '.pw', length=16) }}"
+            new_pass: "{{ lookup('ansible.builtin.password', 'pw/' + inventory_hostname + '.pw', length=16, chars=['ascii_letters', 'digits']) }}"
 
         #
         # Add new credentials to a host_vars/[invnetory_hostname].yml file
@@ -36,7 +37,7 @@
             - name: Vault encrypt_string the new password to a variable using the same vault password provided through --ask-vault-pass
               tags: pw_dry_run
               expect:
-                command: "sh -c 'ansible-vault encrypt_string --ask-vault-pass --stdin-name ansible_password < pw/{{ inventory_hostname }}.pw 2>/dev/null'"
+                command: "sh -c 'tr -d \"\\n\" < pw/{{ inventory_hostname }}.pw | ansible-vault encrypt_string --ask-vault-pass --stdin-name ansible_password 2>/dev/null'"
                 responses:
                   New Vault password: "{{ pw.vault_pass }}"
                   Confirm New Vault password: "{{ pw.vault_pass }}"
@@ -45,7 +46,9 @@
             - name: Set the variable that the host_vars.j2 will use from the last 7 lines of the ansible-vault encrypt_string command
               tags: pw_dry_run
               ansible.builtin.set_fact:
-                vault_encrypt_pass: "{{ vault_encrypt_result.stdout_lines[2] }}\n{{ vault_encrypt_result.stdout_lines[3] }}\n{{ vault_encrypt_result.stdout_lines[4] }}\n{{ vault_encrypt_result.stdout_lines[5] }}\n{{ vault_encrypt_result.stdout_lines[6] }}\n{{ vault_encrypt_result.stdout_lines[7] }}\n{{ vault_encrypt_result.stdout_lines[8] }}\n"
+                # The first two lines of stdout_lines will be the prompts for the vault password and a blank line, so 
+                # just get the lines starting with 'ansible_password'
+                vault_encrypt_pass: "{% set ns = namespace(start=false) %}{% for line in vault_encrypt_result.stdout_lines %}{% if ns.start or 'ansible_password' in line %}{% set ns.start = true %}{{line}}\n{% endif %}{% endfor %}"
 
             #
             # Create a host_vars file for this ansible_host with the src_ip variable
@@ -64,6 +67,13 @@
                     path: "host_vars/{{ inventory_hostname }}.yml"
                     regex: '^ansible_user:'
                     line: "ansible_user: {{ pw.user }}"
+
+                - name: Comment out old ansible_password
+                  ansible.builtin.replace:
+                    path: "host_vars/{{ inventory_hostname }}.yml"
+                    after: '[#\s]*ansible_password: [^\n]*'
+                    regexp: '^(.+)$'
+                    replace: '# \1'
 
                 - name: Replace ansible_password variable with the new value
                   ansible.builtin.lineinfile:
@@ -97,6 +107,7 @@
               Confirm New Vault password: "{{ backup_vault_secret }}"
 
         - name: print the password
+          tags: pw_dry_run
           ansible.builtin.debug:
             var: new_pass
           when: "'debug' in ansible_run_tags"
