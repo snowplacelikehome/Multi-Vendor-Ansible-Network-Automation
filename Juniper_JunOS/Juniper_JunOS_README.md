@@ -4,6 +4,9 @@ JunOS RADIUS AAA device management use the VSA described here: <https://communit
 # Notes for JunOS plays  
 Typical execution would be similar to this:
 ```sh
+# Collect facts and review info
+ansible -m junipernetworks.junos.junos_facts -a 'gather_subset="!config"' --tree ./facts --ask-vault-pass junos
+
 # Fist, enable netconf on each device (i.e.: Ansible host)
 ansible-playbook junos.yml --extra-vars 'ansible_connection=ansible.netcommon.network_cli' --ask-vault-pass --tags netconf
 
