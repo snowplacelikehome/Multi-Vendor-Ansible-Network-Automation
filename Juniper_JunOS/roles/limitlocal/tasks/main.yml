@@ -1,0 +1,39 @@
+---
+# tasks file for LimitLocal 
+- name: Configure the standard AAA authentication-order settings
+  tags:
+    - limitlocal
+  block:
+    # First, determine whether it's necessary to remove any previously configured AAA settings
+    - name: Capture show configuration system tacplus-server output for AAA cleanup
+      junipernetworks.junos.junos_command:
+        commands:
+          - "show configuration system tacplus-server"
+        ## Somoe versions of JunOS do not support `display set` over netconf
+        #display: set
+      register: config_tacplus_result
+      when: "config_tacplus_output is not defined or config_output|length == 0"
+
+    - name: Capture show configuration system authentication-order output for AAA cleanup
+      junipernetworks.junos.junos_command:
+        commands:
+          - "show configuration system authentication-order"
+        ## Somoe versions of JunOS do not support `display set` over netconf
+        #display: set
+      register: config_auth_result
+      when: "config_auth_output is not defined or config_output|length == 0"
+
+    - name: Build tacplus cleanup commands if the config has TACACS+ enabled
+      ansible.builtin.set_fact:
+        #tacplus_servers: "{{ config_output | regex_findall('(?m)([\\w\\.-]+)\\s+{') | unique }}"
+        tacplus_servers: "{{ config_tacplus_result | regex_findall('n*([\\w\\.-]+)\\s+{') | unique }}"
+
+    - name: Look for `set system authentication-order password` to deterimine if local auth should be cleared
+      ansible.builtin.set_fact:
+        local_auth_clear: "{{ config_auth_result | regex_findall('password')|length > 0 }}"
+
+    - name: Build limitlocal.conf file from the template
+      ansible.builtin.template:
+        src: limitlocal.j2
+        dest: "{{ config_build }}/04_limitlocal.conf"
+        mode: 0640

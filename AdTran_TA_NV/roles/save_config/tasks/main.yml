@@ -1,0 +1,15 @@
+---
+# tasks file for save_config
+
+- name: Begin the save_config tasks
+  tags:
+    - save_config
+  block:
+    - name: Save the Device Configuration
+      ansible.netcommon.cli_command:
+        command: copy running-config startup-config
+      become: true
+      become_method: enable
+      register: save_output
+      failed_when: "'Success!' not in save_output.stdout"
+      changed_when: "'Success!' in save_output.stdout"

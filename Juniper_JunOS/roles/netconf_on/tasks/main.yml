@@ -1,0 +1,14 @@
+---
+# Playbook for enabling netconf
+- name: Configure the devices for netconf
+  tags:
+    - netconf_on
+  block:
+    - name: Enable - JunOS NETCONF
+      connection: ansible.netcommon.network_cli
+      junipernetworks.junos.junos_netconf:
+        listens_on: 830
+        state: present
+      vars:
+        ansible_command_timeout: 60
+        ansible_connection: ansible.netcommon.network_cli

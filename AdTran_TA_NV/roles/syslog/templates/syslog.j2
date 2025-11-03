@@ -1,1 +1,7 @@
+logging forwarding on
+logging forwarding priority-level {{ syslog.severity_short }}
+logging forwarding receiver-ip {{ syslog.ipv4 }}
+logging facility {{ syslog.facility }}
+{# AdTran does not have configurable port like similar CLIs
 logging host {{ syslog.ipv4 }} port {{ syslog.port }} facility {{ syslog.facility }} severity {{ syslog.severity }} description "{{ syslog.desc }}"
+#}

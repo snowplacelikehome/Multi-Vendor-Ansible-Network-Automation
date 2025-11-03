@@ -1,0 +1,83 @@
+---
+# tasks file for get_facts
+- name: Collect facts and write them to a file
+  tags:
+    - get_facts
+  block:
+    # Skip this if another task already set the config_output hostvar
+    - name: Run show configuration command
+      ansible.netcommon.cli_command:
+        command: "copy running-configuration display"
+      register: config_result
+      failed_when: config_result.stdout|length == 0
+      when: "config_output is not defined or config_output|length == 0"
+
+    # This will allow other tasks to reuse the config_output hostvar without sending another command to the device
+    - name: Save the configuration output to a variable
+      ansible.builtin.set_fact:
+        config_output: "{{ config_result.stdout }}"
+      when: config_result.stdout is defined and config_result.stdout | length > 0
+
+    - name: Run show version command
+      ansible.netcommon.cli_command:
+        command: "show system info"
+      register: shver_result
+      failed_when: shver_result.stdout|length == 0
+
+    - name: Run show inventory command
+      ansible.netcommon.cli_command:
+        command: "show inventory"
+      register: shinv_result
+      failed_when: shinv_result.stdout|length == 0
+
+    # tu-1400-51-bk>show eth host mac-addr 
+    # eth host         mac-addr                  : 00:24:a4:12:cd:09
+    - name: Run show eth mac-addr command
+      ansible.netcommon.cli_command:
+        command: "show eth host mac-addr"
+      register: shmac_result
+      failed_when: shmac_result.stdout|length == 0
+
+    # CSV requires any variable that contains a comma (',') to be contained in double quotes ('"'')
+    # CSV requires any variable that contains quotes to have each quote escaped with by another quote
+    - name: Set facts from results and make them in CSV compliant
+      ansible.builtin.set_fact:
+        # device_name may contain quotes and commas
+        show_device_name: >-
+          {{ '"' + shver_result.stdout | regex_search('system name\s*:\s([^\n]+)', '\1') | default([''], true) | join('') | regex_replace('"', '""') | trim + '"' }}
+        # model, version and serial could contain commas
+        show_model: >-
+          {{ '"' + shinv_result.stdout | regex_search('inventory 1 model-name\s*:\s([^\n]+)', '\1') | default([''], true) | join('') | trim + '"' }}
+        show_hwrev: >-
+          {{ '"' + shinv_result.stdout | regex_search('inventory 1 hw-rev\s*:\s([^\n]+)', '\1') | default([''], true) | join('') | trim + '"' }}
+        show_version: >-
+          {{ '"' + shinv_result.stdout | regex_search('inventory 1 sw-rev\s*:\s([^\n]+)', '\1') | default([''], true) | join('') | trim + '"' }}
+        show_serial: >-
+          {{ '"' + shinv_result.stdout | regex_search('inventory 1 serial\s*:\s([^\n]+)', '\1') | default([''], true) | join('') | trim + '"' }}
+        show_mac_address: "{{ shmac_result.stdout | regex_search('eth\\s+host\\s+mac-addr\\s+:\\s([^\\n]+)', '\\1') | default([''], true) | join('; ') | trim }}"
+        show_ntp_servers: "{{ config_output | regex_findall('set ntp \\d\\s+se[\\w-]+ ([^\\n]+)', '\\1') | default([''], true) | join('; ') | trim }}"
+        show_syslog_servers: "{{ config_output | regex_findall('set syslog \\d\\s+server ([^\\s\\n]+)', '\\1') | default([''], true) | join('; ') | trim }}"
+        show_aaa_servers: "{{ config_output | regex_findall('set aaa-server \\d\\s+ip-addr ([^\\s\\n]+)', '\\1') | default([''], true) | join('; ') | trim }}"
+        show_aaa_mode: "{{ config_output | regex_search('set aaa (?:[\\s\\w-])*mode ([^\\s\\n]+)', '\\1') | default([''], true) | join('; ') | trim }}"
+
+    #- name: Show varaibles for debugging 
+    #  ansible.builtin.debug:
+    #     msg: "'{{ hostvars[inventory_hostname].ansible_host }}','{{ hostvars[inventory_hostname].show_device_name }}','{{ hostvars[inventory_hostname].show_model }}','{{ hostvars[inventory_hostname].show_version }}','{{ hostvars[inventory_hostname].show_serial }}',{{ hostvars[inventory_hostname].show_mac_address }},{{ hostvars[inventory_hostname].show_ntp_servers }},{{ hostvars[inventory_hostname].show_syslog_servers }},{{ hostvars[inventory_hostname].show_aaa_servers }},{{ hostvars[inventory_hostname].show_aaa_mode }}"
+
+    - name: Copy results to file
+      ansible.builtin.copy:
+        backup: true
+        mode: "0640"
+        content: |
+          #jinja2: lstrip_blocks: True
+          inventory_name,host_name,device_name,model,hw_rev,sw_version,serial,mac_address,ntp_servers,syslog_servers,aaa_servers,aaa_mode
+          {% for host in hostvars.keys() %}
+          {% if hostvars[host].show_device_name is defined %}
+          {{ host }},{{ hostvars[host].ansible_host }},{{ hostvars[host].show_device_name }},{{ hostvars[host].show_model }},{{ hostvars[host].show_hwrev }},{{ hostvars[host].show_version }},{{ hostvars[host].show_serial }},{{ hostvars[host].show_mac_address }},{{ hostvars[host].show_ntp_servers }},{{ hostvars[host].show_syslog_servers }},{{ hostvars[host].show_aaa_servers }},{{ hostvars[host].show_aaa_mode }}
+          {% endif %}
+          {% endfor %}
+        #{{ host }},{{ hostvars[host].ansible_host }},"{{ hostvars[host].show_device_name }}","{{ hostvars[host].show_model }}","{{ hostvars[host].show_hwrev }}","{{ hostvars[host].show_version }}","{{ hostvars[host].show_serial }}",{{ hostvars[host].show_mac_address }},{{ hostvars[host].show_ntp_servers }},{{ hostvars[host].show_syslog_servers }},{{ hostvars[host].show_aaa_servers }},{{ hostvars[host].show_aaa_mode }}
+        #{{ host }},{{ hostvars[host].ansible_host }},{{ hostvars[host].show_device_name }},{{ hostvars[host].show_model }},{{ hostvars[host].show_hwrev }},{{ hostvars[host].show_version }},{{ hostvars[host].show_serial }},{{ hostvars[host].show_mac_address }},{{ hostvars[host].show_ntp_servers }},{{ hostvars[host].show_syslog_servers }},{{ hostvars[host].show_aaa_servers }},{{ hostvars[host].show_aaa_mode }}
+        #Pick the first group that the first device belogs to for the file name
+        dest: "facts/{{ group_names[0] }}.csv"
+      run_once: true

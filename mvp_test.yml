@@ -18,14 +18,64 @@
         desc: "User template for remote operator users"
         uid: 2011
         class: operator
+    test_multiline: |
+      
+      
+       name  type
+       asdf123  qwer
+       admin  qwer
+       admin-123  dsaf.veth
+       admin
+       eerty.wert
+       zxcv  hjkl
+      
+    test_indexes: |
+      logging server 5 5.5.5.5
+      logging server 1 1.1.1.1
+      logging server 2 1.1.1.1
+      logging server 3 5.5.5.5
+      logging server 4 5.5.5.5
+      
   tags: mvp
   tasks:
-    - name: Build a test_var directly
-      ansible.builtin.set_fact:
-        test_var: 
-          - { name: 'testuser1', groups: 'wheel' }
-          - { name: 'testuser2', groups: 'root' }
+    #- name: Build a test_var directly
+    #  ansible.builtin.set_fact:
+    #    test_var: 
+    #      - { name: 'testuser1', groups: 'wheel' }
+    #      - { name: 'testuser2', groups: 'root' }
 
-    - name: Show a combined list of users, plus user templates
+    #- name: Show a combined list of users, plus user templates
+    #  ansible.builtin.set_fact:
+    #    test_var2: "{{ aaa_user_templates + test_var }}"
+
+    - name: Show a regex
       ansible.builtin.set_fact:
-        test_var2: "{{ aaa_user_templates + test_var }}"
+        #regex_var: "{{ test_multiline | regex_findall('(?m)^(?!name\\s+|admin\\s+)\\w+') }}"
+        #regex_var: "{{ test_multiline | regex_findall('(?m)^(?!name\\s+|admin\\s+)[\\w\\.-]+') }}"
+        #regex_var: "{{ test_multiline | regex_findall('(?m)^(?!name\\s+|admin\\s+)[\\w\\.-]+') | regex_replace('([\\w\\.-]+)', 'clear user \\1') }}"
+        #regex_var: "{{ test_multiline | regex_replace('(?m)^(?!name\\s+|admin\\s+)([\\w\\.-]+)', 'clear user \\1') }}"
+        #syslog_indexes: "{{ test_indexes | regex_findall('(?m)^logging server (\\d)') | unique }}"
+        syslog_indexes: "{{ test_indexes | regex_search('logging server (\\d)') | default([''], true) | join('; ') }}"
+
+    - name: Show first missing index result
+      ansible.builtin.set_fact:
+        result_var: |
+          #jinja2: trim_blocks: "true", lstrip_blocks: "true"
+          {% set max_num = 5 %}
+          {% set ns = namespace(found = false) %}
+          {% for i in range(1, max_num + 1) %}
+            {% if not ns.found %}
+              {% if i|string not in syslog_indexes %}
+          logging host {{ i }} address blah
+          logging host {{ i }} facility blah
+          logging host {{ i }} level blah
+                {% set ns.found = true %}
+              {% elif i == max_num %}
+          no logging host {{ i }}
+          logging host {{ i }} address blah_replaced
+          logging host {{ i }} facility blah_replaced
+          logging host {{ i }} level blah_replaced
+              {% endif %}
+            {% endif %}
+          {% endfor %}
+      when: "ansible_run_tags | select('match','.*dry_run') | list | length == 0 and ansible_run_tags | select('match','aaa') | list | length == 0"

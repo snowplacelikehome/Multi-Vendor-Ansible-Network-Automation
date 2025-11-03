@@ -1,0 +1,16 @@
+<rpc>
+  <edit-config>
+    <target>
+      <candidate/>
+    </target>
+    <config>
+      <configuration>
+        <system>
+          <services>
+            <netconf operation="delete"/>
+          </services>
+        </system>
+      </configuration>
+    </config>
+  </edit-config>
+</rpc>

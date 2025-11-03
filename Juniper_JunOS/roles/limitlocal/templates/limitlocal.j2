@@ -1,0 +1,9 @@
+#jinja2: trim_blocks: "true", lstrip_blocks: "true"
+{% if tacplus_servers != None %}
+    {% for srv in tacplus_servers %}
+set system tacplus-server {{ srv }} timeout {{ aaa_timeout }}
+    {% endfor %}
+{% endif %}
+{% if local_auth_clear %}
+delete system authentication-order password
+{% endif %}

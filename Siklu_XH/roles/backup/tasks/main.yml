@@ -4,18 +4,25 @@
   tags:
     - backup
   block:
+    # Skip this if another task already set the config_output hostvar
     - name: Run show configuration command
-      tags: backup_dry_run
       ansible.netcommon.cli_command:
         command: "copy running-configuration display"
-      register: command_result
-      failed_when: command_result.stdout|length == 0
+      register: config_result
+      failed_when: config_result.stdout|length == 0
+      when: "config_output is not defined or config_output|length == 0"
+
+    # This will allow other tasks to reuse the config_output hostvar without sending another command to the device
+    - name: Save the configuration output to a variable
+      ansible.builtin.set_fact:
+        config_output: "{{ config_result.stdout }}"
+      when: config_result.stdout is defined and config_result.stdout | length > 0
 
     - name: Copy results to file
       ansible.builtin.copy:
         backup: true
         mode: "0640"
-        content: "{{ command_result.stdout }}"
+        content: "{{ config_output }}"
         dest: "backups/{{ inventory_hostname }}.backup"
 
     # ansible.builtin.valut requires Ansible Core 2.12

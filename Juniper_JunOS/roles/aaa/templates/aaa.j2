@@ -2,7 +2,7 @@
 {% for class in aaa_user_classes %}
 set system login class {{ class.name }}
    {% for perm in class.perms %}
-set system login class {{ class }} permissions {{ perm }}
+set system login class {{ class.name }} permissions {{ perm }}
    {% endfor %}
 {% endfor %}
 {% for user in aaa_user_templates %}
@@ -38,4 +38,6 @@ set system authentication-order radius
 {% elif aaa_type == 'tacplus' %}
 set system authentication-order tacplus
 {% endif %}
-set system authentication-order password
+{# add password to authentication-order if you want the device to allow the local accounts even when TACACS+ is responding #}
+{# set system authentication-order password #}
+delete system authentication-order password

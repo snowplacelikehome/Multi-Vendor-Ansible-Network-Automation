@@ -1,0 +1,143 @@
+---
+# tasks file for get_facts
+- name: Collect facts and write them to a file
+  tags:
+    - get_facts
+  block:
+    # Skip this if another task already set the config_output hostvar
+    - name: Run show configuration command
+      junipernetworks.junos.junos_command:
+        commands:
+          - "show configuration"
+        display: set
+      register: config_result
+      failed_when: config_result.stdout|length == 0
+      when: "config_output is not defined or config_output|length == 0"
+
+    # This will allow other tasks to reuse the config_output hostvar without sending another command to the device
+    - name: Save the configuration output to a variable
+      ansible.builtin.set_fact:
+        # junos_command seems to output newlines as a string of '\n', so convert the strings to newlines
+        config_output: "{{ config_result.stdout | regex_replace('\\\\n','\\n') }}"
+      when: config_result.stdout is defined and config_result.stdout | length > 0
+
+    # @cs1-lab-bk> show system information 
+    #    Model: ex4300-32f
+    #    Family: junos
+    #    Junos: 18.4R3-S1.3
+    #    Hostname: cs1-lab-bk
+    # Some older software doesn't support this command. An alternative might be:
+    # g@fw1-north-berry-37-greenpoint-bk> show version 
+    #    Hostname: fw1-north-berry-37-greenpoint-bk
+    #    Model: srx220h2
+    #    JUNOS Software Release [12.3X48-D105.4]
+    # @cs1-lab-bk> show version 
+    #    fpc0:
+    #    --------------------------------------------------------------------------
+    #    Hostname: cs1-lab-bk
+    #    Model: ex4300-32f
+    #    Junos: 18.4R3-S1.3
+    #    JUNOS EX  Software Suite [18.4R3-S1.3]
+    # or:
+    # @cs1-lab-bk> show chassis hardware 
+    #    Hardware inventory:
+    #    Item             Version  Part number  Serial number     Description
+    #    Chassis                                CF4715AK0192      SRX220H2
+    #    Routing Engine   REV 05   750-048778   ACNK3611          RE-SRX220H2
+    #    FPC 0                                                    FPC
+    #      PIC 0                                                  8x GE Base PIC
+    #    Power Supply 0  
+
+    - name: Get system info
+      ansible.netcommon.cli_command:
+        #command: "show system information"
+        command: "show version"
+      register: shsysinfo_result
+      #failed_when: shsysinfo_result.stdout|length == 0
+
+    # xtsvc-ansible-config@cs1-lab-bk> show chassis mac-addresses 
+    #    FPC 0   MAC address information:
+    #      Public base address     80:db:17:67:76:80
+    # xtsvc-ansible-config@ds1-20-mezritch-ns> show chassis mac-addresses 
+    #    FPC 0
+    #    Base address     fc:33:42:5c:66:0a
+    #    Count            35 
+
+    - name: Get the chassis mac-address
+      ansible.netcommon.cli_command:
+        command: "show chassis mac-address"
+      register: shmac_result
+      failed_when: shmac_result.stdout|length == 0
+
+    # JunOS has most of the info in the `show running-config`
+    # 
+    #set system host-name cs1-lab-bk
+    #set system time-zone EST
+    #set system authentication-order tacplus
+    #set system authentication-order password
+
+    #set system tacplus-server 10.1.3.61 port 49
+    #set system tacplus-server 10.1.3.61 secret "$9$5TnCtpOSyevWkmTFAtrevW-VoJGi.PfTz69C1I8X7NVYaZDmfQn/hSevN-Yg4Zi.36Au015TeMXNbwik.fF/BIhyK8Ct"
+    #set system tacplus-server 10.1.3.61 timeout 15
+    #set system tacplus-server 10.1.3.61 source-address 10.6.8.2
+    #set system tacplus-server 10.1.3.102 port 49
+    #set system tacplus-server 10.1.3.102 secret "$9$LnHXds2gaHkmfTeMXNY2qmfT/C1RhrvW8X7VwsZGQFn6CuIESM8xdbjHmf6/uOBErv-VY4oZLXm5F6Atrev8NbJGjkPQs2"
+    #set system tacplus-server 10.1.3.102 timeout 15
+    #set system tacplus-server 10.1.3.102 source-address 10.6.8.2
+
+    #set system services ssh
+    #set system services netconf ssh
+    #set system services telnet
+
+    #set system ntp server 66.128.2.48
+
+
+    # CSV requires any variable that contains a comma (',') to be contained in double quotes ('"'')
+    # CSV requires any variable that contains quotes to have each quote escaped with by another quote
+    - name: Set facts from results and make them in CSV compliant
+      ansible.builtin.set_fact:
+        # device_name may contain quotes and commas
+        show_device_name: >-
+          {{ '"' + shsysinfo_result.stdout | regex_search('Hostname:\s([^\n]+)', '\1') | default([''], true) | join('') | regex_replace('"', '""') | trim + '"' }}
+        # model, version and serial could contain commas
+        show_model: >-
+          {{ '"' + shsysinfo_result.stdout | regex_search('Model:\s([^\n]+)', '\1') | default([''], true) | join('') | trim + '"' }}
+        show_version: >-
+          {{ '"' + shsysinfo_result.stdout | regex_search('Junos:\s([^\n]+)', '\1') | default([''], true) | join('') | trim + '"' }}
+        show_mac_address: "{{ shmac_result.stdout | regex_search('(?i)base address\\s+([^\\n]+)', '\\1') | default([''], true) | join('; ') | trim }}"
+        show_ntp_servers: "{{ config_output | regex_findall('set system ntp server ([^\\n]+)', '\\1') | default([''], true) | join('; ') | trim }}"
+        show_syslog_servers: "{{ config_output | regex_findall('set system syslog host ([^\\s]+) port', '\\1') | default([''], true) | join('; ') | trim }}"
+        show_aaa_servers: "{{ config_output | regex_findall('set system (?:tacplus|radius)-server ([^\\s]+) secret', '\\1') | default([''], true) | join('; ') | trim }}"
+        show_aaa_timeout: "{{ config_output | regex_findall('set system (?:tacplus|radius)-server [^\\s]+ timeout (\\d+)', '\\1') | default([''], true) | join('; ') | trim }}"
+        show_aaa_mode: "{{ config_output | regex_findall('set system authentication-order ([^\\n]+)', '\\1') | default([''], true) | join('; ') | trim }}"
+        show_aaa_readall_class_users: "{{ config_output | regex_findall('set system login user ([^\\s]+) class read-all', '\\1') | default([''], true) | join('; ') | trim }}"
+        show_aaa_readall_class_perms: "{{ config_output | regex_findall('set system login class read-all permissions ([^\\n]+)', '\\1') | default([''], true) | join('; ') | trim }}"
+        show_netconf: "{{ config_output | regex_search('set system services netconf ([^\\n]+)', '\\1') | default([''], true) | join('; ') | trim }}"
+
+    - name: Reset missing SW version fact with an alternate search
+      ansible.builtin.set_fact:
+        show_version: >-
+          {{ '"' + shsysinfo_result.stdout | regex_search('Software (?:Suite|Release) \[([^\]]+)', '\1') | default([''], true) | join('') | trim + '"' }}
+      when: show_version|length == 2
+
+    #- name: Show varaibles for debugging 
+    #  ansible.builtin.debug:
+    #     msg: "'{{ hostvars[inventory_hostname].ansible_host }}','{{ hostvars[inventory_hostname].show_device_name }}','{{ hostvars[inventory_hostname].show_model }}','{{ hostvars[inventory_hostname].show_version }}','{{ hostvars[inventory_hostname].show_serial }}',{{ hostvars[inventory_hostname].show_mac_address }},{{ hostvars[inventory_hostname].show_ntp_servers }},{{ hostvars[inventory_hostname].show_syslog_servers }},{{ hostvars[inventory_hostname].show_aaa_servers }},{{ hostvars[inventory_hostname].show_aaa_mode }}"
+
+    - name: Copy results to file
+      ansible.builtin.copy:
+        backup: true
+        mode: "0640"
+        content: |
+          #jinja2: lstrip_blocks: True
+          inventory_name,host_name,device_name,model,sw_version,mac_address,ntp_servers,syslog_servers,aaa_servers,aaa_timeout,aaa_mode,aaa_read-all_class_users,aaa_read-all_class_perms,netconf
+          {% for host in hostvars.keys() %}
+          {% if hostvars[host].show_device_name is defined %}
+          {{ host }},{{ hostvars[host].ansible_host }},{{ hostvars[host].show_device_name }},{{ hostvars[host].show_model }},{{ hostvars[host].show_version }},{{ hostvars[host].show_mac_address }},{{ hostvars[host].show_ntp_servers }},{{ hostvars[host].show_syslog_servers }},{{ hostvars[host].show_aaa_servers }},{{ hostvars[host].show_aaa_timeout }},{{ hostvars[host].show_aaa_mode }},{{ hostvars[host].show_aaa_readall_class_users }},{{ hostvars[host].show_aaa_readall_class_perms }},{{ hostvars[host].show_netconf }}
+          {% endif %}
+          {% endfor %}
+        #{{ host }},{{ hostvars[host].ansible_host }},"{{ hostvars[host].show_device_name }}","{{ hostvars[host].show_model }}","{{ hostvars[host].show_version }}",{{ hostvars[host].show_mac_address }},{{ hostvars[host].show_ntp_servers }},{{ hostvars[host].show_syslog_servers }},{{ hostvars[host].show_aaa_servers }},{{ hostvars[host].show_aaa_mode }}
+        #{{ host }},{{ hostvars[host].ansible_host }},{{ hostvars[host].show_device_name }},{{ hostvars[host].show_model }},{{ hostvars[host].show_version }},{{ hostvars[host].show_mac_address }},{{ hostvars[host].show_ntp_servers }},{{ hostvars[host].show_syslog_servers }},{{ hostvars[host].show_aaa_servers }},{{ hostvars[host].show_aaa_mode }}
+        #Pick the first group that the first device belogs to for the file name
+        dest: "facts/{{ group_names[0] }}.csv"
+      run_once: true

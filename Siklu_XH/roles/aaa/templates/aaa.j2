@@ -10,11 +10,15 @@ clear aaa-server all
     {% if aaa_type == 'radius' %}
 set aaa-server {{ aaa_srv.idx }} ip-addr {{ aaa_srv.ipv4 }} port {{ radius_auth_port }} accounting-port {{ radius_acct_port }}
     {% elif aaa_type == 'tacplus' %}
-set aaa-server {{ aaa_srv.idx }} ip-addr {{ aaa_srv.ipv4 }} port {{ tacplus_port }}
+set aaa-server {{ aaa_srv.idx }} ip-addr {{ aaa_srv.ipv4 }} port {{ tacplus_port }} accounting-port all
     {% endif %}
 {% endfor %}
 {% if aaa_type == 'radius' %}
-set aaa mode radius shared-secret "{{ aaa_secret }}" connection-timeout {{ aaa_timeout }}
+set aaa mode radius shared-secret {{ aaa_secret }} connection-timeout {{ aaa_timeout }}
 {% elif aaa_type == 'tacplus' %}
-set aaa mode tacacs+ shared-secret "{{ aaa_secret }}" connection-timeout {{ aaa_timeout }}
+{% if inv_version.startswith("7.7.12") %}
+set aaa mode tacacs shared-secret {{ aaa_secret }} connection-timeout {{ aaa_timeout }} user-default-level admin
+{% else %}
+set aaa mode tacacs shared-secret {{ aaa_secret }} connection-timeout {{ aaa_timeout }}
+{% endif %}
 {% endif %}

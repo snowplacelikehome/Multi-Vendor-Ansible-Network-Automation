@@ -18,33 +18,40 @@
       changed_when: true
       notify: Begin the Configuration
 
+    # Skip this when configuring AAA because command authorization will block the reload cancel command
+    #
     # Run this command separatly because it requires responses
-    - name: Set Reload Timer
-      listen: Begin the Configuration
-      ansible.netcommon.cli_command:
-        command: reload in 3
-        prompt:
-          - Save System Configuration\?\[y/n\]
-          - You are about to reboot the system\. Continue\?\[y/n\]
-        answer:
-          - y
-          - y
-        check_all: true
-      register: reload_output
-      when: "ansible_run_tags | select('match','.*dry_run') | list | length == 0"
-      changed_when: "'reboot scheduled' in reload_output.stdout"
-      failed_when: reload_output.msg is defined and reload_output.msg|length > 0 and reload_output.msg is regex(pattern='^%', multiline=true)
-      notify: Enter Config Mode
+    #- name: Set Reload Timer
+    #  listen: Begin the Configuration
+    #  ansible.netcommon.cli_command:
+    #    command: reload in 5
+    #    prompt:
+    #      - Save System Configuration\?\[y/n\]
+    #      - You are about to reboot the system\. Continue\?\[y/n\]
+    #    answer:
+    #      - y
+    #      - y
+    #    check_all: true
+    #  register: reload_output
+    #  when: "ansible_run_tags | select('match','.*dry_run') | list | length == 0"
+    #  changed_when: "'reboot scheduled' in reload_output.stdout"
+    #  failed_when: reload_output.msg is defined and reload_output.msg|length > 0 and reload_output.msg is regex(pattern='^%', multiline=true)
+    #  notify: Enter Config Mode
 
     # When using cli_command instead of cli_config, need to enter config mode manually 
     - name: Enter Configuration Mode
-      listen: Enter Config Mode
+      listen: Begin the Configuration
+      #listen: Enter Config Mode
       ansible.netcommon.cli_command:
         command: configure terminal
+      become: true
+      become_method: enable
       register: conft_output
-      changed_when: conft_output.stdout|length == 0 or conft_output.stdout is not regex(pattern='^%', multiline=true)
-      failed_when: conft_output.msg is defined and conft_output.msg|length > 0 and conft_output.msg is regex(pattern='^%', multiline=true)
-      when: "ansible_run_tags | select('match','.*dry_run') | list | length == 0"
+      changed_when: conft_output.msg | default('') | length == 0
+      failed_when: 
+        - conft_output.msg | default('') | length > 0
+        - conft_output.msg is regex(pattern='^%', multiline=true) or conft_output.msg is regex(pattern='^command timeout', multiline=true)
+      when: ansible_run_tags | select('match','.*dry_run') | list | length == 0
       notify: Push the Configuration Settings
 
     - name: Send the Configuration Commands to the Device
@@ -52,16 +59,27 @@
       ansible.netcommon.cli_command:
         command: "{{ item }}"
       loop: "{{ commands.stdout_lines }}"
-      loop_control:
-        extended: true
+      become: true
+      become_method: enable
+      #loop_control:
+      #  extended: true
       register: cli_output
       vars:
         ansible_buffer_read_timeout: .4 
-      changed_when: ansible_loop.last and (cli_output.stdout is defined and (cli_output.stdout|length == 0 or cli_output.stdout is not regex(pattern='^%', multiline=true)))
-      failed_when: cli_output.msg is defined and cli_output.msg|length > 0 and cli_output.msg is regex(pattern='^%', multiline=true)
-      when:
-        - ansible_loop.first or (cli_output.stdout is defined and (cli_output.stdout|length == 0 or cli_output.stdout is not regex(pattern='^%', multiline=true))) # remaining commands only when previous had no error
-        - "ansible_run_tags | select('match','.*dry_run') | list | length == 0"
+      #changed_when: ansible_loop.last and (cli_output.stdout is defined and (cli_output.stdout|length == 0 or cli_output.stdout is not regex(pattern='^%', multiline=true)))
+      #failed_when: cli_output.msg is defined and cli_output.msg|length > 0 and cli_output.msg is regex(pattern='^%', multiline=true)
+      #when:
+      #  - ansible_loop.first or (cli_output.stdout is defined and (cli_output.stdout|length == 0 or cli_output.stdout is not regex(pattern='^%', multiline=true))) # remaining commands only when previous had no error
+      #  - "ansible_run_tags | select('match','.*dry_run') | list | length == 0"
+      changed_when: cli_output.msg | default('') | length == 0 
+      failed_when: # if each condition below is true 
+        - cli_output.msg | default('') | length > 0 
+        - cli_output.msg is regex(pattern='^%', multiline=true) or cli_output.msg is regex(pattern='^command timeout', multiline=true)
+      #changed_when: ansible_loop.last and (cli_output.stdout|length == 0 or cli_output.stdout is not regex(pattern='^%', multiline=true))
+      when: # if each condition below is true
+        - ansible_run_tags | select('match','.*dry_run') | list | length == 0 
+        - not cli_output.skipped | default(false)
+        - not cli_output.failed | default(false)
       notify: Complete the Configuration
 
     - name: End the Device Configuration and Cancel the Reload
@@ -70,51 +88,30 @@
         command: "{{ item }}"
       loop:
         - end
-        - reload cancel
-      loop_control:
-        extended: true
+        # if reload in 5 is enabled above
+        #- reload cancel
+      become: true
+      become_method: enable
       register: end_output
-      failed_when: end_output.msg is defined and end_output.msg|length > 0 and end_output.msg is regex(pattern='^%', multiline=true)
-      changed_when: ansible_loop.last and (end_output.stdout|length == 0 or end_output.stdout is not regex(pattern='^%', multiline=true))
-      when: "ansible_run_tags | select('match','.*dry_run') | list | length == 0"
-      notify: Save the Configuration
+      changed_when: end_output.msg | default('') | length == 0
+      failed_when: 
+        - end_output.msg | default('') | length > 0
+        - end_output.msg is regex(pattern='^%', multiline=true) or end_output.msg is regex(pattern='^command timeout', multiline=true)
+      when: # if each condition below is true
+        - ansible_run_tags | select('match','.*dry_run') | list | length == 0 
+        - not end_output.skipped | default(false)
+        - not end_output.failed | default(false)
+      #notify: Save the Configuration
 
-    # This would be much simpler than the above cli_command loop, but it doesnt trap any errors
-    #- name: Load the Config
-    #  listen: Enter Config Mode
-    #  ansible.netcommon.cli_config:
-    #    config: "{{ config_all }}"
-    #  register: config_result
-    #  when: "ansible_run_tags | select('match','.*dry_run') | list | length == 0"
-    #  #failed_when: reload_output.msg is defined and reload_output.msg|length > 0 and reload_output.msg is regex(pattern='^%', multiline=true)
-    #  changed_when: true
-    #  notify: Clear the Reload
-    #
-    #- name: Print the Config Result
-    #  listen: Clear the Reload
-    #  ansible.builtin.debug:
-    #    var: config_result
-    #  changed_when: true
-    #  notify: Save the Configuration
-
-    #- name: Cancel the Reload
-    #  listen: Clear the Reload
+    # This will be skipped when aaa is included, since command authorization will reject the copy command until a new AAA connection is logged in
+    #- name: Save the Device Configuration
+    #  listen: Save the Configuration
     #  ansible.netcommon.cli_command:
-    #    command: reload cancel
-    #  register: end_output
-    #  failed_when: end_output.msg is defined and end_output.msg|length > 0 and end_output.msg is regex(pattern='^%', multiline=true)
-    #  changed_when: end_output.stdout|length == 0 or end_output.stdout is not regex(pattern='^%', multiline=true))
-    #  when: "ansible_run_tags | select('match','.*dry_run') | list | length == 0"
-    #  notify: Save the Configuration
-
-    - name: Save the Device Configuration
-      listen: Save the Configuration
-      ansible.netcommon.cli_command:
-        command: copy running-config startup-config
-      register: save_output
-      failed_when: "'Success!' not in save_output.stdout"
-      changed_when: "'Success!' in save_output.stdout"
-      when: "ansible_run_tags | select('match','.*dry_run') | list | length == 0"
+    #    command: copy running-config startup-config
+    #  register: save_output
+    #  failed_when: "'Success!' not in save_output.stdout"
+    #  changed_when: "'Success!' in save_output.stdout"
+    #  when: "ansible_run_tags | select('match','.*dry_run') | list | length == 0 and ansible_run_tags | select('match','aaa') | list | length == 0"
 
     #- name: Show Debug cli_output variable
     #  ansible.builtin.debug:

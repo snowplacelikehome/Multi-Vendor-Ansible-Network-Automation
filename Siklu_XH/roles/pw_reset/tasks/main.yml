@@ -24,7 +24,8 @@
         - name: Create saved, idempotent, random password for each host
           tags: pw_dry_run
           ansible.builtin.set_fact:
-            new_pass: "{{ lookup('ansible.builtin.password', 'pw/' + inventory_hostname + '.pw', length=16) }}"
+            # Siklu will requires letters and digits and it will truncate the password at 14 characters
+            new_pass: "{{ lookup('ansible.builtin.password', 'pw/' + inventory_hostname + '.pw', length=14, chars=['ascii_letters', 'digits']) }}"
 
         #
         # Add new credentials to a host_vars/[invnetory_hostname].yml file
@@ -32,11 +33,10 @@
         - name: Add new credentials to a host_vars/[invnetory_hostname].yml files with the vault encrypted password
           tags: make_host_vars
           block:
-
             - name: Vault encrypt_string the new password to a variable using the same vault password provided through --ask-vault-pass
               tags: pw_dry_run
               expect:
-                command: "sh -c 'ansible-vault encrypt_string --ask-vault-pass --stdin-name ansible_password < pw/{{ inventory_hostname }}.pw 2>/dev/null'"
+                command: "sh -c 'tr -d \"\\n\" < pw/{{ inventory_hostname }}.pw | ansible-vault encrypt_string --ask-vault-pass --stdin-name ansible_password 2>/dev/null'"
                 responses:
                   New Vault password: "{{ pw.vault_pass }}"
                   Confirm New Vault password: "{{ pw.vault_pass }}"
@@ -45,14 +45,16 @@
             - name: Set the variable that the host_vars.j2 will use from the last 7 lines of the ansible-vault encrypt_string command
               tags: pw_dry_run
               ansible.builtin.set_fact:
-                vault_encrypt_pass: "{{ vault_encrypt_result.stdout_lines[2] }}\n{{ vault_encrypt_result.stdout_lines[3] }}\n{{ vault_encrypt_result.stdout_lines[4] }}\n{{ vault_encrypt_result.stdout_lines[5] }}\n{{ vault_encrypt_result.stdout_lines[6] }}\n{{ vault_encrypt_result.stdout_lines[7] }}\n{{ vault_encrypt_result.stdout_lines[8] }}\n"
+                # The first two lines of stdout_lines will be the prompts for the vault password and a blank line, so 
+                # just get the lines starting with 'ansible_password'
+                vault_encrypt_pass: "{% set ns = namespace(start=false) %}{% for line in vault_encrypt_result.stdout_lines %}{% if ns.start or 'ansible_password' in line %}{% set ns.start = true %}{{line}}\n{% endif %}{% endfor %}"
 
             #
             # Create a host_vars file for this ansible_host with the src_ip variable
             # First, check if a host_vars file already exists
             - name: Check if a host_vars file already exists
               tags: pw_dry_run
-              stat:
+              ansible.builtin.stat:
                 path: "host_vars/{{ inventory_hostname }}.yml"
               register: host_vars_check_result
 
@@ -64,6 +66,13 @@
                     path: "host_vars/{{ inventory_hostname }}.yml"
                     regex: '^ansible_user:'
                     line: "ansible_user: {{ pw.user }}"
+
+                - name: Comment out old ansible_password
+                  ansible.builtin.replace:
+                    path: "host_vars/{{ inventory_hostname }}.yml"
+                    after: '[#\s]*ansible_password: [^\n]*'
+                    regexp: '^(.+)$'
+                    replace: '# \1'
 
                 - name: Replace ansible_password variable with the new value
                   ansible.builtin.lineinfile:
@@ -108,31 +117,35 @@
         - name: Capture show creds command output
           tags: pw_dry_run
           ansible.netcommon.cli_command:
-            command: "show running-config"
+            command: "show user all"
           register: config_result
-
+        
         - name: Print the config's existing creds
           tags: pw_dry_run
           ansible.builtin.debug:
-            msg: "Current creds: {{ config_result.stdout | regex_findall('(?m)^username .*') | to_nice_json }}"
+            # look for like that contain 'word word', like this
+            #    name                                type
+            #    admin                               admin
+            msg: "Current creds: {{ config_result.stdout | regex_findall('(?m)^[\\w\\.-]+\\s+\\w+') | to_nice_json }}"
           when: "'debug' in ansible_run_tags"
-
-        - name: Log the config_result's creds to a file
-          tags: pw_dry_run
-          ansible.builtin.copy:
-            backup: true
-            mode: "0640"
-            content: "{{ config_result.stdout | regex_findall('(?m)^username .*') | to_nice_json }}"
-            dest: "{{ 'creds/' + inventory_hostname + '.creds' }}"
-          changed_when: false
-
-        - name: Vault encrypt .creds file
-          tags: pw_dry_run
-          expect:
-            command: "ansible-vault encrypt --ask-vault-pass {{ 'creds/' + inventory_hostname + '.creds' }}"
-            responses:
-              New Vault password: "{{ backup_vault_secret }}"
-              Confirm New Vault password: "{{ backup_vault_secret }}"
+        
+        #Siklu has no cli for showing the password hash, so skip this
+        #- name: Log the config_result's creds to a file
+        #  tags: pw_dry_run
+        #  ansible.builtin.copy:
+        #    backup: true
+        #    mode: "0640"
+        #    content: "{{ config_result.stdout | regex_findall('(?m)^username .*') | to_nice_json }}"
+        #    dest: "{{ 'creds/' + inventory_hostname + '.creds' }}"
+        #  changed_when: false
+        #
+        #- name: Vault encrypt .creds file
+        #  tags: pw_dry_run
+        #  expect:
+        #    command: "ansible-vault encrypt --ask-vault-pass {{ 'creds/' + inventory_hostname + '.creds' }}"
+        #    responses:
+        #      New Vault password: "{{ backup_vault_secret }}"
+        #      Confirm New Vault password: "{{ backup_vault_secret }}"
 
         # Next, build commands to remove any previously configured local users
         - name: Build set of local user cleanup commands
@@ -140,45 +153,61 @@
           ansible.builtin.set_fact:
             # the regex_findall will collect just the portion of the lines from the device's config to use in the remove command
             # the regex_replace will match the reusable portion of the regex_findall and use the substitution to build the removal command
-            pw_clear_commands: "{{ config_result.stdout | regex_findall('(?m)username [\\w\\.-]+') | regex_replace('(?m)(username [\\w\\.-]+)', 'no \\1') }}"
+            # The output of the show command will look like below. The goal is to skip and name and admin and remove any others:
+            #
+            #   name                type
+            #   admin               admin
+            #   opadmin             super
+            #   joe.m                 user
+            # 
+            # The result will be
+            #   clear user opadmin
+            #   clear user joe.m
+            #
+            pw_clear_commands: "{{ config_result.stdout | regex_findall('(?m)^(?!name\\s+|admin\\s+)[\\w\\.-]+') | regex_replace('([\\w\\.-]+)', 'clear user \\1') }}"
 
         - name: Build set of new user/pass configuration commands
           tags: pw_dry_run
           ansible.builtin.set_fact:
             pw_config_commands:
-              - "username {{ pw.user }} password {{ new_pass }} privilege 15"
+              - "set user {{ pw.user }} passw {{ new_pass }}"
 
         - name: List all of the user cleanup and new user configuration commands that would be pushed
           tags: pw_dry_run
           ansible.builtin.debug:
             msg: "{{ item }}"
-          loop: "{{ [ 'configure terminal' ] + [ 'logging console error' ] + pw_clear_commands + pw_config_commands + [ 'logging console warning' ] + [ 'exit' ] }}"
+          loop: "{{ pw_clear_commands + pw_config_commands }}"
           when: "'debug' in ansible_run_tags"
 
         - name: Push the user cleanup and new user configuration
           ansible.netcommon.cli_command:
             command: "{{ item }}"
-          loop: "{{ [ 'configure terminal' ] + [ 'logging console error' ] + pw_clear_commands + pw_config_commands + [ 'logging console warning' ] + [ 'exit' ] }}"
+          loop: "{{ pw_clear_commands + pw_config_commands }}"
           register: command_output
-          failed_when: command_output.stdout|length > 0
-          changed_when: command_output.stdout|length == 0
+          # Siklu outputs results on success or errors, so assume success
+          #failed_when: command_output.stdout|length > 0
+          #changed_when: command_output.stdout|length == 0
 
         - name: Show Debug command_output variable
           ansible.builtin.debug:
             msg: '{{ command_output }}'
           when: "'debug' in ansible_run_tags"
 
-        - name: Check for Failutres in the Command Loop Output
-          ansible.builtin.fail:
-            msg: "The command ({{ item.item }}) did not have an empty response"
-          when: item.stdout|length > 0
-          loop: '{{ command_output.results }}'
+        # The following output is expected so don't fail due to output
+        #   
+        #   user opadmin cleared
+        #   
+        # - name: Check for Failutres in the Command Loop Output
+        #   ansible.builtin.fail:
+        #     msg: "The command ({{ item.item }}) did not have an empty response"
+        #   when: item.stdout|length > 0
+        #   loop: '{{ command_output.results }}'
 
         - name: Save Password Reset Configuration
           ansible.netcommon.cli_command:
-            command: "copy running-config startup-config"
+            command: "copy running-configuration startup-configuration"
           register: save_output
-          failed_when: "'Copy succeeded' not in save_output.stdout"
+          #failed_when: "'Copy succeeded' not in save_output.stdout"
 
       when: pw.reset
 

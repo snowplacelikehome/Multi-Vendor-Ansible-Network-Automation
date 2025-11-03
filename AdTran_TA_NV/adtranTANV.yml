@@ -1,6 +1,7 @@
 ---
 - name: Run adtranTANV roles
   hosts: adtranTANV
+  serial: 6
   gather_facts: false
   roles:
     - assemble_apply
@@ -8,6 +9,8 @@
     - ntp
     - syslog
     - aaa
+    - save_config
+    - get_facts
     - pw_reset
   tasks:
     - name: Assemble all the configs and install them
@@ -15,8 +18,6 @@
         - ntp
         - aaa
         - syslog
-        - pw_reset
-        - pw_dry_run
       block:
         - name: Assemble the configs and check whether the commit handler should be run
           ansible.builtin.assemble:

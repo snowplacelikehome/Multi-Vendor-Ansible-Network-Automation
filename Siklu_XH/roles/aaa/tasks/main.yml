@@ -24,7 +24,7 @@
       ansible.builtin.fail:
         msg: "{{ inventory_hostname }}/{{ ansible_host }} contains a pre-existing radius configuration. Remove manually before proceeding"
       # the regex_findall result will be > 0 if it finds "set aaa-server SOME_ID ip-addr SOME_IP" in the config
-      when: "config_output | regex_findall('(?m)set aaa-server \\d ip-addr [\\d\\.]+')|length > 0 and 'clear_radius' not in ansible_run_tags"
+      when: "config_output | regex_findall('(?m)set aaa mode radius')|length > 0 and 'clear_radius' not in ansible_run_tags"
 
     - name: Build list of RADIUS servers from the config to clear
       tags: aaa_dry_run
@@ -32,6 +32,19 @@
         # the regex_findall will return a list of matching lines and the group causes it to return just IP
         aaa_clear_servers: "{{ config_output | regex_findall('(?m)set aaa-server \\d ip-addr ([\\d\\.]+)') | unique }}"
       when: "config_output | regex_findall('(?m)set aaa-server \\d ip-addr [\\d\\.]+')|length > 0 and 'clear_radius' in ansible_run_tags"
+
+    - name: Run show inventory command for Software Version detection
+      tags: aaa_dry_run
+      ansible.netcommon.cli_command:
+        command: "show inventory"
+      register: shinv_result
+      failed_when: shinv_result.stdout|length == 0
+       
+    - name: Set Software Version string from 'show inventory' results
+      tags: aaa_dry_run
+      ansible.builtin.set_fact:
+        inv_version: >-
+          {{ shinv_result.stdout | regex_search('inventory 1 sw-rev\s*:\s([^\n]+)', '\1') | default([''], true) | join('') | trim }}
 
     - name: Build aaa.conf file from the template
       tags: aaa_dry_run

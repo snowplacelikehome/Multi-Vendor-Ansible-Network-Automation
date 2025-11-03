@@ -11,17 +11,14 @@
     - ntp_acl
     - syslog
     - syslog_acl
+    - limitlocal
   block:
     - name: Install the config on the device
-      tags:
-        - config_dry_run
       ansible.builtin.command: cat {{ config_all|quote }}
       register: command_output
       notify: Print the commands
 
     - name: Print the commands
-      tags:
-        - config_dry_run
       ansible.builtin.debug:
         msg: "{{ command_output.stdout }}"
       changed_when: true
@@ -35,6 +32,8 @@
     #  notify: Show Debug cli_output variable
       when: "ansible_run_tags | select('match','.*dry_run') | list | length == 0"
       notify: Reconnect and Confirm the Commit
+      vars:
+        ansible_command_timeout: 60
 
     #- name: Check for failures in the config result
     #  ansible.builtin.fail:
@@ -45,3 +44,5 @@
       junipernetworks.junos.junos_config:
         confirm_commit: true
       when: "ansible_run_tags | select('match','.*dry_run') | list | length == 0"
+      vars:
+        ansible_command_timeout: 60

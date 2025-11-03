@@ -1,0 +1,16 @@
+---
+# tasks file for save_config
+
+- name: Begin the save_config tasks
+  tags:
+    - save_config
+  block:
+    - name: Save Device Configuration
+      ansible.netcommon.cli_command:
+        command: "copy running-configuration startup-configuration"
+      register: save_output
+      # copy should only produce an empty response (empty stdout and no msg) when successful
+      failed_when: save_output.stdout| default('') | length > 0 or save_output.msg| default('') | length > 0
+      changed_when:
+        - save_output.stdout | default('') | length == 0
+        - save_output.msg | default('') | length == 0

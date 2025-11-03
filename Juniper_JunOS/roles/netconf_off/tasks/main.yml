@@ -1,0 +1,13 @@
+---
+# Playbook for disabling netconf
+- name: Remove netconf from the devices 
+  tags:
+    - netconf_off
+  block:
+    - name: Disable Netconf using junos_config over netconf
+      junipernetworks.junos.junos_config:
+        lines:
+          - "delete system services netconf"
+      vars:
+        ansible_command_timeout: 60
+        #ansible_connection: ansible.netcommon.network_cli

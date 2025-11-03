@@ -9,6 +9,8 @@
       tags: aaa_dry_run
       ansible.netcommon.cli_command:
         command: "show running-config"
+      become: true
+      become_method: enable
       register: config_result
       failed_when: config_result.stdout|length == 0
       when: "config_output is not defined or config_output|length == 0"

@@ -8,6 +8,8 @@
       tags: backup_dry_run
       ansible.netcommon.cli_command:
         command: "show running-config"
+      become: true
+      become_method: enable
       register: command_result
       failed_when: command_result.stdout|length == 0
 
@@ -30,6 +32,7 @@
     #   ansible.builtin.file:
     #     path: "backups/{{ inventory_hostname }}.backup"
     #     state: absent
+
     - name: Vault encrypt .backup
       expect:
         command: "ansible-vault encrypt --ask-vault-pass {{ 'backups/' + inventory_hostname + '.backup' }}"

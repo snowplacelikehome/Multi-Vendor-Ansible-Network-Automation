@@ -5,6 +5,7 @@
   roles:
     - assemble_apply
     - backup
+    - get_facts
     - src_ip
     - ntp
     - syslog

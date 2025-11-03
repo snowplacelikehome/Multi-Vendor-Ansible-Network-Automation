@@ -1,21 +1,84 @@
 #jinja2: trim_blocks: "true", lstrip_blocks: "true"
-{% for aaa_srv in aaa_servers %}
-    {% if aaa_type == 'radius' %}
-radius-server host {{ aaa_srv.ipv4 }} auth-port {{ radius_auth_port }} acct-port {{ radius_acct_port }} priority {{ aaa_srv.priority }} key "{{ aaa_secret }}"
-    {% elif aaa_type == 'tacplus' %}
-tacacs-server host {{ aaa_srv.ipv4 }} port-number {{ tacplus_port }} priority {{ aaa_srv.priority }} key "{{ aaa_secret }}"
-    {% endif %}
-{% endfor %}
+{% if radius_clear_servers is defined and radius_clear_servers != None %}
+    {% for srv in radius_clear_servers %}
+no radius-server host {{ srv }}
+    {% endfor %}
+{% endif %}
+privilege interface-fxo all level 4
+privilege interface-fxs all level 4
+privilege exec level 4 configure terminal
+privilege exec level 4 copy running-config startup-config
+privilege configterminal level 4 interface fxo *
+privilege configterminal level 4 interface fxs *
+privilege exec all level 4 show
+privilege exec level 4 write memory
+aaa on
+aaa authorization console
+aaa authentication login LoginUseLocalUsers local
+http authentication LoginUseLocalUsers
+no http server
+no http secure-server
+line con 0
+login authentication LoginUseLocalUsers
+exit
+!
 {% if aaa_type == 'radius' %}
-ip http authentication aaa login-authentication https radius local
-aaa authentication login SSH radius local
-aaa authentication enable SSH radius enable
-aaa authentication login default radius local
-aaa authentication enable default radius enable
+radius-server key {{ aaa_secret }}
+radius-server timeout {{ aaa_timeout }}
+    {% for aaa_srv in aaa_servers %}
+radius-server host {{ aaa_srv.ipv4 }}
+    {% endfor %}
+!
+aaa authentication login LoginUseRadius group radius local
+aaa authentication enable default group radius enable
+{#
+aaa authorization commands 7 AuthorizeUseRadius group radius
+#}
+aaa authorization exec default group radius none
+aaa accounting commands 7 default stop-only group radius
+aaa accounting exec default start-stop group radius
+ftp authentication LoginUseRadius
+!
+line telnet 0 4
+  login authentication LoginUseRadius
+{#
+  authorization commands 7 AuthorizeUseRadius
+#}
+line ssh 0 4
+  login authentication LoginUseRadius
+{#
+  authorization commands 7 AuthorizeUseRadius
+#}
+exit
 {% elif aaa_type == 'tacplus' %}
-ip http authentication aaa login-authentication https tacacs local
-aaa authentication login SSH tacacs local
-aaa authentication enable SSH tacacs enable
-aaa authentication login default tacacs local
-aaa authentication enable default tacacs enable
+!
+tacacs-server key {{ aaa_secret }}
+tacacs-server timeout {{ aaa_timeout }}
+    {% for aaa_srv in aaa_servers %}
+{#
+tacacs-server host {{ aaa_srv.ipv4 }} port-number {{ tacplus_port }} priority {{ aaa_srv.priority }}
+#}
+tacacs-server host {{ aaa_srv.ipv4 }}
+    {% endfor %}
+!
+aaa authentication login LoginUseTacacs group tacacs+ local
+aaa authentication enable default group tacacs+ enable
+{#
+aaa authorization commands 7 AuthorizeUseTacacs group tacacs+
+#}
+aaa authorization exec default group tacacs+ none
+aaa accounting commands 7 default stop-only group tacacs+
+aaa accounting exec default start-stop group tacacs+
+ftp authentication LoginUseTacacs
+!
+line telnet 0 4
+login authentication LoginUseTacacs
+{#
+authorization commands 7 AuthorizeUseTacacs
+#}
+line ssh 0 4
+login authentication LoginUseTacacs
+{#
+authorization commands 7 AuthorizeUseTacacs
+#}
 {% endif %}

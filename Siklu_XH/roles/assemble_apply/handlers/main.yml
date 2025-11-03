@@ -9,20 +9,14 @@
   block: 
     - name: Install the config on the device
       tags:
-        - aaa_dry_run
-        - ntp_dry_run
         - pw_dry_run
-        - syslog_dry_run
       ansible.builtin.command: cat {{ config_all|quote }}
       register: commands
       notify: Print the commands
 
     - name: Print the commands
       tags:
-        - aaa_dry_run
-        - ntp_dry_run
         - pw_dry_run
-        - syslog_dry_run
       ansible.builtin.debug:
         msg: "{{ commands.stdout }}"
       changed_when: true
@@ -35,27 +29,33 @@
       ansible.netcommon.cli_command:
         command: "{{ item }}"
       loop: "{{ commands.stdout_lines }}"
+      #loop_control:
+        #extended: true
+      #  break_when: cli_output.msg is defined and cli_output.msg|length > 0 and cli_output.msg is regex(pattern='^%', multiline=true)
       register: cli_output
-      changed_when: cli_output.stdout|length == 0
-      failed_when: cli_output.stdout|length > 0
-      when: "ansible_run_tags | select('match','.*dry_run') | list | length == 0"
+      changed_when: cli_output.msg | default('') | length == 0 
+      failed_when: # if each condition below is true 
+        - cli_output.msg | default('') | length > 0 
+        - cli_output.msg is regex(pattern='^%', multiline=true) or cli_output.msg is regex(pattern='^command timeout', multiline=true)
+      #changed_when: ansible_loop.last and (cli_output.stdout|length == 0 or cli_output.stdout is not regex(pattern='^%', multiline=true))
+      when: # if each condition below is true
+        - ansible_run_tags | select('match','.*dry_run') | list | length == 0 
+        - not cli_output.skipped | default(false)
+        - not cli_output.failed | default(false)
     #  notify: Show Debug cli_output variable
-      notify: Save Device Configuration
+      #notify: Save Device Configuration
 
-    # Fail and prevent the next handler from saving the config if any of the previous commands failed
-    #- name: Fail if any command had a non empty response
-    #  listen: Push the Full Configuration
-    #  ansible.builtin.fail:
-    #    msg: "The command ({{ item.item }}) did not have an empty response which is considered a failure. ACTION REQUIRED: some commands may have succeeded before the failure. The {{ inventory_hostname }}'s startup config has not been modified but the running config may need manual cleanup"
-    #  when: item.stdout|length > 0
-    #  loop: '{{ cli_output.results }}'
-
-    - name: Save Device Configuration
-      ansible.netcommon.cli_command:
-        command: "copy running-config startup-config"
-      register: save_output
-      failed_when: "'Copy succeeded' not in save_output.stdout"
-      changed_when: "'Copy succeeded' in save_output.stdout"
+    #
+    # In most cases, it's better to save the config in a separate playbook run to allow this run to be verified with the save run
+    #  uncomment the above `notify: Save Device Configuration` if this is enabled
+    #
+    #- name: Save Device Configuration
+    #  ansible.netcommon.cli_command:
+    #    command: "copy running-configuration startup-configuration"
+    #  register: save_output
+    #  #failed_when: "'Copy succeeded' not in save_output.stdout"
+    #  failed_when: save_output.stdout|length > 0
+    #  changed_when: save_output.stdout|length == 0
 
     #- name: Show Debug cli_output variable
     #  ansible.builtin.debug:

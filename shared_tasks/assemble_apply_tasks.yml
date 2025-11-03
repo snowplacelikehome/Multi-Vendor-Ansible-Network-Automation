@@ -5,6 +5,7 @@
     - aaa
     - ntp
     - syslog
+    - limitlocal
     - ports_config
   block:
     - name: confirm or create device config directory

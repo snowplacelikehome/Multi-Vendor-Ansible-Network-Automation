@@ -1,5 +1,6 @@
 backups/*
 creds/*
+**/facts/*
 host_vars/*
 **/config/*
 *.conf

@@ -1,14 +1,18 @@
 ---
 - name: Run junos roles
   hosts: junos
+  serial: 16
   roles:
     - assemble_apply
     - backup
-    - netconf
+    - get_facts
+    - netconf_on
+    - netconf_off
     - src_ip
     - ntp
     - syslog
     - aaa
+    - limitlocal
     - filter_acl
     - pw_reset
   gather_facts: false
@@ -16,19 +20,13 @@
     - name: Assemble all the configs and install them
       tags:
         - netconf_acl
-        - netconf_acl_dry_run
         - ntp
         - ntp_acl
-        - ntp_dry_run
-        - ntp_acl_dry_run
         - aaa
         - aaa_acl
-        - aaa_dry_run
-        - aaa_acl_dry_run
         - syslog
         - syslog_acl
-        - syslog_dry_run
-        - syslog_acl_dry_run
+        - limitlocal
         - pw_reset
         - pw_dry_run
       block:

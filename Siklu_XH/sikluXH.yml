@@ -1,6 +1,7 @@
 ---
 - name: Run sikluXH roles
   hosts: sikluXH
+  serial: 4
   gather_facts: false
   roles:
     - assemble_apply
@@ -9,15 +10,15 @@
     - ntp
     - syslog
     - aaa
+    - get_facts
     - pw_reset
+    - save_config
   tasks:
     - name: Assemble all the configs and install them
       tags:
         - ntp
         - aaa
         - syslog
-        - pw_reset
-        - pw_dry_run
       block:
         - name: Assemble the configs and check whether the commit handler should be run
           ansible.builtin.assemble:
@@ -30,21 +31,23 @@
             path: "{{ config_all }}"
           register: conf
 
-        - name: Insert the rollback commands and notify the handler to push the config to the device
+        #- name: Insert the rollback commands and notify the handler to push the config to the device
+        - name: Insert the any pre/post commands and notify the handler to push the config to the device
           block:
-            - name: Insert the 'rollback timeout 120' command at the beginning of the assembled config commands
-              ansible.builtin.lineinfile:
-                path:  "{{ config_all }}"
-                insertbefore: "BOF"
-                line: "set rollback timeout 120"
-                create: false
+            #- name: Insert the 'rollback timeout 120' command at the beginning of the assembled config commands
+            #  ansible.builtin.lineinfile:
+            #    path:  "{{ config_all }}"
+            #    insertbefore: "BOF"
+            #    line: "set rollback timeout 120"
+            #    create: false
 
-            - name: Insert the 'clear rollback', and save command at the end of the assembled config commands
-              ansible.builtin.lineinfile:
-                path:  "{{ config_all }}"
-                insertafter: "EOF"
-                line: "clear rollback\ncopy running-configuraiton startup-configuration"
-                create: false
+            #- name: Insert the 'clear rollback', and save command at the end of the assembled config commands
+            #  ansible.builtin.lineinfile:
+            #    path:  "{{ config_all }}"
+            #    insertafter: "EOF"
+            #    #line: "clear rollback\ncopy running-configuration startup-configuration"
+            #    line: "clear rollback"
+            #    create: false
 
             - name: Run the handler if the assembled config exists and isn't empty
               ansible.builtin.debug:

@@ -4,6 +4,7 @@
 - name: Configuration Backup
   tags:
     - backup
+
   block:
     - name: Create a fact for the backup file name
       ansible.builtin.set_fact:
@@ -19,18 +20,43 @@
       ansible.builtin.copy:
         src: "{{ 'backups/' + inventory_hostname + '.backup' }}"
         dest: "{{ 'backups/' + backup_file + '.backup' }}"
+        decrypt: false
         mode: '0640'
       when: file_check_result.stat.exists
 
-    # Get it from the device and vault encrypt it
-    - name: Get a backup of the JunOS config in `text` format
+    - name: When Netconf, Run junos_config backup
       junipernetworks.junos.junos_config:
         backup: true
         backup_options:
           filename: "{{ inventory_hostname }}.backup"
           dir_path: "backups"
-          #backup_format: "text"
+          backup_format: "text"
           #backup_format: "set"
+      when: ansible_connection == "ansible.netcommon.netconf"
+
+    - name: When network_cli, Run cli_command backup
+      block:
+        - name: Run show configuration command
+          # for some reason junos_command's stdout contains strings of '\n' instead of newlines, so use cli_command instead
+          ansible.netcommon.cli_command:
+            command: "show configuration"
+          #junipernetworks.junos.junos_command:
+          #  commands:
+          #    - "show configuration"
+          #  #display: text
+          #  #display: set
+          register: config_result
+          failed_when: config_result.stdout|length == 0
+
+        # Get it from the device and vault encrypt it
+        - name: Copy results to file
+          ansible.builtin.copy:
+            backup: true
+            mode: "0640"
+            content: "{{ config_result.stdout }}"
+            dest: "backups/{{ inventory_hostname }}.backup"
+      when: ansible_connection == "ansible.netcommon.network_cli"
+
     - name: Vault encrypt .backup
       expect:
         command: "ansible-vault encrypt --ask-vault-pass {{ 'backups/' + inventory_hostname + '.backup' }}"

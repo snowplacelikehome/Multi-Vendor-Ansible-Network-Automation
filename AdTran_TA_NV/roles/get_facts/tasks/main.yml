@@ -1,0 +1,105 @@
+---
+# tasks file for get_facts
+- name: Collect facts and write them to a file
+  tags:
+    - get_facts
+  block:
+    # Skip this if another task already set the config_output hostvar
+    - name: Run show configuration command
+      ansible.netcommon.cli_command:
+        command: "show running-config"
+      become: true
+      become_method: enable
+      register: config_result
+      failed_when: config_result.stdout|length == 0
+      when: "config_output is not defined or config_output|length == 0"
+
+    # This will allow other tasks to reuse the config_output hostvar without sending another command to the device
+    - name: Save the configuration output to a variable
+      ansible.builtin.set_fact:
+        config_output: "{{ config_result.stdout }}"
+      when: config_result.stdout is defined and config_result.stdout | length > 0
+
+    # iad87-lab-bk-ny-kj-qns-nj-md#show running-config verbose | inc mac-add
+    #    mac-address 00:A0:C8:95:51:A2
+    #- name: Get a verbose config for finding the first mac-address
+    #  ansible.netcommon.cli_command:
+    #    command: "show running-config verbose"
+    #  become: true
+    #  become_method: enable
+    #  register: shverbose_result
+    #  failed_when: shverbose_result.stdout|length == 0
+
+    - name: Get memory usage
+      ansible.netcommon.cli_command:
+        command: "show memory heap"
+      become: true
+      become_method: enable
+      register: shmem_result
+      failed_when: shmem_result.stdout|length == 0
+
+    - name: Get load average
+      ansible.netcommon.cli_command:
+        command: "show process cpu"
+      become: true
+      become_method: enable
+      register: shload_result
+      failed_when: shload_result.stdout|length == 0
+
+    # AdTran has most of the info in the `show running-config`
+    # !
+    # ! ADTRAN, Inc. OS version R13.6.0.E
+    # ! Boot ROM version 14.04.00
+    # ! Platform: Total Access 904 (2nd Gen), part number 4212904L1
+    # ! Serial number CFG1071231
+    # !
+    # hostname "iad87-tacacs+-lab-IC-BLDG19-bk-ny-ns-kj-qns"
+
+    # CSV requires any variable that contains a comma (',') to be contained in double quotes ('"'')
+    # CSV requires any variable that contains quotes to have each quote escaped with by another quote
+    - name: Set facts from results and make them in CSV compliant
+      ansible.builtin.set_fact:
+        # device_name may contain quotes and commas
+        show_device_name: >-
+          {{ '"' + config_output | regex_search('hostname\s*"([^""]+)', '\1') | default([''], true) | join('') | regex_replace('"', '""') | trim + '"' }}
+        # model, version and serial could contain commas
+        show_model: >-
+          {{ '"' + config_output | regex_search('Platform:\s([^\n]+)', '\1') | default([''], true) | join('') | trim + '"' }}
+        show_version: >-
+          {{ '"' + config_output | regex_search('OS version\s([^\n]+)', '\1') | default([''], true) | join('') | trim + '"' }}
+        show_serial: >-
+          {{ '"' + config_output | regex_search('Serial number\s([^\n]+)', '\1') | default([''], true) | join('') | trim + '"' }}
+        #show_mac_address: "{{ shverbose_result.stdout | regex_search('mac-address\\s+([^\\n]+)', '\\1') | default([''], true) | join('; ') | trim }}"
+        show_ntp_servers: "{{ config_output | regex_findall('sntp server ([^\\s\\n]+)', '\\1') | default([''], true) | join('; ') | trim }}"
+        show_syslog_servers: "{{ config_output | regex_findall('logging forwarding receiver-ip ([^\\s\\n]+)', '\\1') | default([''], true) | join('; ') | trim }}"
+        show_aaa_servers: "{{ config_output | regex_findall('(?:tacacs|radius)-server host ([^\\s\\n]+)', '\\1') | default([''], true) | join('; ') | trim }}"
+        show_aaa_mode: "{{ config_output | regex_search('aaa (on)', '\\1') | default([''], true) | join('; ') | trim }}"
+        show_ssh_auth: "{{ config_output | regex_search('line ssh \\d \\d\\n\\s*login authentication ([^\\n]+)', '\\1') | default([''], true) | join('; ') | trim }}"
+        show_http_auth: "{{ config_output | regex_search('http authentication ([^\\n]+)', '\\1') | default([''], true) | join('; ') | trim }}"
+        show_mem_tot: "{{ shmem_result.stdout | regex_search('HeapSize:\\s+([^\\n]+)', '\\1') | default([''], true) | join('; ') | trim }}"
+        show_mem_free: "{{ shmem_result.stdout | regex_search('HeapFree:\\s+([^\\n]+)', '\\1') | default([''], true) | join('; ') | trim }}"
+        show_load: "{{ shload_result.stdout | regex_search('System load:.*5min:([^\\n\\s]+)', '\\1') | default([''], true) | join('; ') | trim }}"
+
+    #- name: Show varaibles for debugging 
+    #  ansible.builtin.debug:
+    #     msg: "'{{ hostvars[inventory_hostname].ansible_host }}','{{ hostvars[inventory_hostname].show_device_name }}','{{ hostvars[inventory_hostname].show_model }}','{{ hostvars[inventory_hostname].show_version }}','{{ hostvars[inventory_hostname].show_serial }}',{{ hostvars[inventory_hostname].show_mac_address }},{{ hostvars[inventory_hostname].show_ntp_servers }},{{ hostvars[inventory_hostname].show_syslog_servers }},{{ hostvars[inventory_hostname].show_aaa_servers }},{{ hostvars[inventory_hostname].show_aaa_mode }}"
+
+    - name: Copy results to file
+      ansible.builtin.copy:
+        backup: true
+        mode: "0640"
+        content: |
+          #jinja2: lstrip_blocks: True
+          {# inventory_name,host_name,device_name,model,sw_version,serial,mac_address,ntp_servers,syslog_servers,aaa_servers,aaa_mode,ssh_auth,http_auth,mem_tot,mem_free,load_5min #}
+          inventory_name,host_name,device_name,model,sw_version,serial,ntp_servers,syslog_servers,aaa_servers,aaa_mode,ssh_auth,http_auth,mem_tot,mem_free,load_5min
+          {% for host in hostvars.keys() %}
+          {% if hostvars[host].show_device_name is defined %}
+          {# {{ host }},{{ hostvars[host].ansible_host }},{{ hostvars[host].show_device_name }},{{ hostvars[host].show_model }},{{ hostvars[host].show_version }},{{ hostvars[host].show_serial }},{{ hostvars[host].show_mac_address }},{{ hostvars[host].show_ntp_servers }},{{ hostvars[host].show_syslog_servers }},{{ hostvars[host].show_aaa_servers }},{{ hostvars[host].show_aaa_mode }},{{ hostvars[host].show_ssh_auth }},{{ hostvars[host].show_http_auth }},{{ hostvars[host].show_mem_tot }},{{ hostvars[host].show_mem_free }},{{ hostvars[host].show_load }} #}
+          {{ host }},{{ hostvars[host].ansible_host }},{{ hostvars[host].show_device_name }},{{ hostvars[host].show_model }},{{ hostvars[host].show_version }},{{ hostvars[host].show_serial }},{{ hostvars[host].show_ntp_servers }},{{ hostvars[host].show_syslog_servers }},{{ hostvars[host].show_aaa_servers }},{{ hostvars[host].show_aaa_mode }},{{ hostvars[host].show_ssh_auth }},{{ hostvars[host].show_http_auth }},{{ hostvars[host].show_mem_tot }},{{ hostvars[host].show_mem_free }},{{ hostvars[host].show_load }}
+          {% endif %}
+          {% endfor %}
+        #{{ host }},{{ hostvars[host].ansible_host }},"{{ hostvars[host].show_device_name }}","{{ hostvars[host].show_model }}","{{ hostvars[host].show_version }}","{{ hostvars[host].show_serial }}",{{ hostvars[host].show_mac_address }},{{ hostvars[host].show_ntp_servers }},{{ hostvars[host].show_syslog_servers }},{{ hostvars[host].show_aaa_servers }},{{ hostvars[host].show_aaa_mode }}
+        #{{ host }},{{ hostvars[host].ansible_host }},{{ hostvars[host].show_device_name }},{{ hostvars[host].show_model }},{{ hostvars[host].show_version }},{{ hostvars[host].show_serial }},{{ hostvars[host].show_mac_address }},{{ hostvars[host].show_ntp_servers }},{{ hostvars[host].show_syslog_servers }},{{ hostvars[host].show_aaa_servers }},{{ hostvars[host].show_aaa_mode }}
+        #Pick the first group that the first device belogs to for the file name
+        dest: "facts/{{ group_names[0] }}.csv"
+      run_once: true

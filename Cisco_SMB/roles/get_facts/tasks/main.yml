@@ -1,0 +1,80 @@
+---
+# tasks file for get_facts
+- name: Collect facts and write them to a file
+  tags:
+    - get_facts
+  block:
+    # Skip this if another task already set the config_output hostvar
+    - name: Run show configuration command
+      ansible.netcommon.cli_command:
+        command: "show running-config"
+      register: config_result
+      failed_when: config_result.stdout|length == 0
+      when: "config_output is not defined or config_output|length == 0"
+
+    # This will allow other tasks to reuse the config_output hostvar without sending another command to the device
+    - name: Save the configuration output to a variable
+      ansible.builtin.set_fact:
+        config_output: "{{ config_result.stdout }}"
+      when: config_result.stdout is defined and config_result.stdout | length > 0
+
+    - name: Run show version command
+      ansible.netcommon.cli_command:
+        command: "show version"
+      register: shver_result
+      failed_when: shver_result.stdout|length == 0
+
+    - name: Run show inventory command
+      ansible.netcommon.cli_command:
+        command: "show inventory"
+      register: shinv_result
+      failed_when: shinv_result.stdout|length == 0
+
+    - name: Run show inventory command
+      ansible.netcommon.cli_command:
+        command: "show system"
+      register: shsys_result
+      failed_when: shsys_result.stdout|length == 0
+
+
+    - name: Set facts from results
+      ansible.builtin.set_fact:
+        # device_name may contain quotes and commas
+        show_device_name: >-
+          {{ '"' + config_output | regex_search('hostname\s+([^\n]+)', '\1') | join('') | regex_replace('"', '""') | trim + '"' }}
+        # model, version and serial could contain commas
+        show_model: >-
+          {{ '"' + shinv_result.stdout | regex_search('PID:\s+([^\s]+)', '\1') | default([''], true) | join('') | trim + '"' }}
+        # remove and quotes in the model description
+        show_model_desc: >-
+          {{ '"' + shinv_result.stdout | regex_search('DESCR:\s+([^\n]+)', '\1') | default([''], true) | join('') | regex_replace('"', '') | trim + '"' }}
+        show_version: >-
+          {{ '"' + shver_result.stdout | regex_search('SW version\s+([^\n]+)', '\1') | default([''], true) | join('') | trim + '"' }}
+        show_serial: >-
+          {{ '"' + shinv_result.stdout | regex_search('SN:\s+([^\n]+)', '\1') | default([''], true) | join('') | trim + '"' }}
+        show_mac_address: "{{ shsys_result.stdout | regex_search('System MAC Address:\\s+([^\\n]+)', '\\1') | default([''], true) | join('') | trim }}"
+        show_ntp_servers: "{{ config_output | regex_findall('sntp server ([^\\s\\n]+)', '\\1') | default([''], true) | join('; ') | trim }}"
+        show_syslog_servers: "{{ config_output | regex_findall('logging host ([^\\s\\n]+)', '\\1') | default([''], true) | join('; ') | trim }}"
+        show_radius_servers: "{{ config_output | regex_findall('radius-server host ([^\\s\\n]+)', '\\1') | default([''], true) | join('; ') | trim }}"
+        show_tacacs_servers: "{{ config_output | regex_findall('tacacs-server host ([^\\s\\n]+)', '\\1') | default([''], true) | join('; ') | trim }}"
+        #show_radius_servers: |
+        #  #jinja2: trim_blocks: "true", lstrip_blocks: "true"
+        #  {% set srv = config_output | regex_search('radius-server host ([^\\s\\n]+)', '\\1') %}
+        #  {% if srv is iterable %}
+        #  {{ srv|join('; ')|trim }}
+        #  {% else %} {% endif %}
+        #show_tacacs_servers: "{% set srv = config_output | regex_search('tacacs-server host ([^\\s\\n]+)', '\\1') %}{% if srv is iterable %}{{ srv|join('; ')|trim }}{% else %} {% endif %}"
+
+    - name: Copy results to file
+      ansible.builtin.copy:
+        backup: true
+        mode: "0640"
+        content: |
+          #jinja2: lstrip_blocks: True
+          inventory_name,host_name,device_name,model,model_description,sw_version,serial,mac_address,ntp_servers,syslog_servers,radius_servers,tacacs_servers
+          {% for host in hostvars.keys() %}
+          {{ host }},{{ hostvars[host].ansible_host }},{{ hostvars[host].show_device_name }},{{ hostvars[host].show_model }},{{ hostvars[host].show_model_desc }},{{ hostvars[host].show_version }},{{ hostvars[host].show_serial }},{{ hostvars[host].show_mac_address }},{{ hostvars[host].show_ntp_servers }},{{ hostvars[host].show_syslog_servers }},{{ hostvars[host].show_radius_servers }},{{ hostvars[host].show_tacacs_servers }}
+          {% endfor %}
+        #Pick the first group that the first device belogs to for the file name
+        dest: "facts/{{ group_names[0] }}.csv"
+      run_once: true
